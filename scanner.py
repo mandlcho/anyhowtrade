@@ -11,7 +11,7 @@ from moomoo import (
 )
 
 from indicators import compute_rsi, compute_macd, compute_bollinger
-from grader import detect_sell_signals, compute_confluence_score, grade_minervini, compute_health
+from grader import detect_sell_signals, compute_confluence_score, grade_minervini, compute_health, compute_synergy
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +320,7 @@ def analyze_stock(position, log_callback=None, quote_ctx=None):
         minervini = grade_minervini(stock_data)
 
         health = compute_health(stock_data, active_signals)
+        synergy = compute_synergy(stock_data, active_signals, minervini)
 
         stock_data["active_signals"] = active_signals
         stock_data["confluence_score"] = confluence_score
@@ -328,6 +329,7 @@ def analyze_stock(position, log_callback=None, quote_ctx=None):
         stock_data["health_grade"] = health["health_grade"]
         stock_data["action"] = health["action"]
         stock_data["verdict"] = health["verdict"]
+        stock_data["synergy"] = synergy
         stock_data["scanner_grades"] = {
             "minervini": minervini,
         }
@@ -568,6 +570,27 @@ def run_scan(positions, watchlist_tickers=None, log_callback=None):
                             "severity": sig["severity"],
                             "message": sig["message"],
                         })
+
+            # Synergy alerts — 5+ criteria aligned
+            synergy = result.get("synergy", {})
+            if synergy.get("sell_synergy"):
+                count = synergy["sell_count"]
+                criteria_list = ", ".join(synergy["sell_criteria"][:5])
+                alerts.append({
+                    "ticker": result["ticker"],
+                    "signal": "sell_synergy",
+                    "severity": "critical",
+                    "message": f"SELL SYNERGY: {count} bearish criteria aligned — {criteria_list}",
+                })
+            if synergy.get("buy_synergy"):
+                count = synergy["buy_count"]
+                criteria_list = ", ".join(synergy["buy_criteria"][:5])
+                alerts.append({
+                    "ticker": result["ticker"],
+                    "signal": "buy_synergy",
+                    "severity": "critical",
+                    "message": f"BUY SYNERGY: {count} bullish criteria aligned — {criteria_list}",
+                })
 
         # Market internals
         log("info", "Fetching market internals")

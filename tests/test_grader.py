@@ -1,5 +1,5 @@
 import pytest
-from grader import detect_sell_signals, compute_confluence_score, grade_minervini, compute_health
+from grader import detect_sell_signals, compute_confluence_score, grade_minervini, compute_health, compute_synergy
 
 
 def make_stock_data(**overrides):
@@ -196,3 +196,72 @@ class TestComputeHealth:
         assert "health_grade" in health
         assert "action" in health
         assert "verdict" in health
+
+
+class TestComputeSynergy:
+    def test_healthy_stock_has_buy_criteria(self):
+        data = make_stock_data(
+            current_price=100.0,
+            unrealized_pnl_pct=15.0,
+            moving_averages={
+                "ma50": 95.0, "ma150": 90.0, "ma200": 85.0,
+                "price_above_50ma": True, "price_above_200ma": True,
+                "extension_from_50ma_pct": 5.0,
+            },
+            momentum={
+                "rsi_14": 50.0, "bearish_divergence": False,
+                "macd_line": 2.0, "macd_signal": 1.0,
+                "macd_histogram": 1.0, "macd_hist_direction": "expanding",
+            },
+            range_52w={"pct_from_52w_high": -5.0, "pct_from_52w_low": 60.0},
+        )
+        signals = detect_sell_signals(data)
+        minervini = grade_minervini(data)
+        synergy = compute_synergy(data, signals, minervini)
+        assert synergy["buy_count"] >= 5
+        assert synergy["buy_synergy"] is True
+        assert synergy["sell_synergy"] is False
+
+    def test_broken_stock_has_sell_synergy(self):
+        data = make_stock_data(
+            current_price=40.0,
+            avg_cost=100.0,
+            unrealized_pnl_pct=-60.0,
+            moving_averages={
+                "ma50": 60.0, "ma150": 70.0, "ma200": 80.0,
+                "price_above_50ma": False, "price_above_200ma": False,
+                "extension_from_50ma_pct": -33.0,
+            },
+            momentum={
+                "rsi_14": 22.0, "bearish_divergence": True,
+                "macd_line": -3.0, "macd_signal": -1.0,
+                "macd_histogram": -2.0, "macd_hist_direction": "expanding",
+            },
+            volume={"rvol": 3.0, "volume_climax": True, "vol_5d_vs_50d": 1.5},
+            price_action={
+                "change_1d_pct": -5.0, "change_5d_pct": -15.0,
+                "close_position_in_range_pct": 10.0,
+            },
+            range_52w={"pct_from_52w_high": -55.0, "pct_from_52w_low": 5.0},
+            volatility={"bb_position_pct": 2.0},
+        )
+        signals = detect_sell_signals(data)
+        synergy = compute_synergy(data, signals)
+        assert synergy["sell_count"] >= 5
+        assert synergy["sell_synergy"] is True
+
+    def test_neutral_stock_no_synergy(self):
+        data = make_stock_data()
+        signals = detect_sell_signals(data)
+        synergy = compute_synergy(data, signals)
+        assert synergy["sell_synergy"] is False
+        # Might or might not have buy synergy depending on defaults
+
+    def test_returns_criteria_lists(self):
+        data = make_stock_data()
+        signals = detect_sell_signals(data)
+        synergy = compute_synergy(data, signals)
+        assert isinstance(synergy["sell_criteria"], list)
+        assert isinstance(synergy["buy_criteria"], list)
+        assert isinstance(synergy["sell_count"], int)
+        assert isinstance(synergy["buy_count"], int)

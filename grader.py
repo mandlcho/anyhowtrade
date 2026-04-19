@@ -254,6 +254,149 @@ def compute_health(stock_data, signals):
     }
 
 
+SYNERGY_THRESHOLD = 5
+
+
+def compute_synergy(stock_data, signals, minervini=None):
+    """Check if 5+ criteria align for a sell or buy signal.
+
+    Evaluates a broad set of independent criteria across trend, momentum,
+    volume, price action, and position P&L. When 5+ criteria from different
+    domains agree, it's a high-conviction synergy signal worth notifying about.
+
+    Returns dict with:
+        sell_criteria: list of matched sell criteria names
+        buy_criteria: list of matched buy criteria names
+        sell_synergy: bool (5+ sell criteria aligned)
+        buy_synergy: bool (5+ buy criteria aligned)
+        sell_count: int
+        buy_count: int
+    """
+    ma = stock_data.get("moving_averages", {})
+    momentum = stock_data.get("momentum", {})
+    volume = stock_data.get("volume", {})
+    price_action = stock_data.get("price_action", {})
+    r52 = stock_data.get("range_52w", {})
+    volatility = stock_data.get("volatility", {})
+    pnl_pct = stock_data.get("unrealized_pnl_pct", 0) or 0
+    rsi = momentum.get("rsi_14", 50) or 50
+
+    # --- SELL CRITERIA (each is an independent reason to be bearish) ---
+    sell_criteria = []
+
+    # Trend
+    if ma.get("price_above_50ma") is False:
+        sell_criteria.append("Below 50-day MA")
+    if ma.get("price_above_200ma") is False:
+        sell_criteria.append("Below 200-day MA")
+    ext = ma.get("extension_from_50ma_pct", 0) or 0
+    if ext < -15:
+        sell_criteria.append(f"Extended {ext:.0f}% below 50MA")
+
+    # Momentum
+    if momentum.get("bearish_divergence"):
+        sell_criteria.append("Bearish divergence")
+    if rsi < 30:
+        sell_criteria.append(f"RSI oversold ({rsi:.0f})")
+    macd_line = momentum.get("macd_line", 0) or 0
+    macd_signal = momentum.get("macd_signal", 0) or 0
+    if macd_line < macd_signal and (momentum.get("macd_histogram", 0) or 0) < 0:
+        sell_criteria.append("MACD bearish")
+
+    # Volume
+    if volume.get("volume_climax"):
+        sell_criteria.append("Volume climax")
+    rvol = volume.get("rvol", 1) or 1
+    vol_trend = volume.get("vol_5d_vs_50d", 1) or 1
+    if rvol >= 2.0 and (price_action.get("change_1d_pct", 0) or 0) < -2:
+        sell_criteria.append("Heavy volume on red day")
+
+    # Price action
+    close_pos = price_action.get("close_position_in_range_pct", 50) or 50
+    if close_pos < 20:
+        sell_criteria.append("Closed in bottom 20% of range")
+    change_5d = price_action.get("change_5d_pct", 0) or 0
+    if change_5d < -10:
+        sell_criteria.append(f"Down {change_5d:.0f}% in 5 days")
+
+    # 52-week
+    pct_from_high = r52.get("pct_from_52w_high", 0) or 0
+    if pct_from_high < -30:
+        sell_criteria.append(f"{pct_from_high:.0f}% from 52w high")
+
+    # Volatility
+    bb_pos = volatility.get("bb_position_pct", 50) or 50
+    if bb_pos < 5:
+        sell_criteria.append("At lower Bollinger Band")
+
+    # P&L
+    if pnl_pct < -25:
+        sell_criteria.append(f"Position down {pnl_pct:.0f}%")
+
+    # --- BUY CRITERIA (each is an independent reason to be bullish) ---
+    buy_criteria = []
+
+    # Trend
+    if ma.get("price_above_50ma") and ma.get("price_above_200ma"):
+        buy_criteria.append("Above all major MAs")
+    ma150 = ma.get("ma150", 0) or 0
+    ma200 = ma.get("ma200", 0) or 0
+    if ma150 and ma200 and ma150 > ma200:
+        buy_criteria.append("150MA > 200MA (uptrend)")
+
+    # Momentum
+    if 40 <= rsi <= 60:
+        buy_criteria.append("RSI neutral zone")
+    if macd_line > macd_signal and (momentum.get("macd_histogram", 0) or 0) > 0:
+        buy_criteria.append("MACD bullish")
+    if momentum.get("macd_hist_direction") == "expanding" and macd_line > 0:
+        buy_criteria.append("MACD expanding positive")
+
+    # Volume
+    if rvol >= 1.5 and (price_action.get("change_1d_pct", 0) or 0) > 1:
+        buy_criteria.append("Strong volume on green day")
+    if vol_trend > 1.2:
+        buy_criteria.append("Rising volume trend")
+
+    # Price action
+    if close_pos > 80:
+        buy_criteria.append("Closed in top 20% of range")
+    change_20d = price_action.get("change_20d_pct", 0) or 0
+    if change_20d > 10:
+        buy_criteria.append(f"Up {change_20d:.0f}% in 20 days")
+
+    # 52-week
+    if pct_from_high > -10:
+        buy_criteria.append("Near 52-week high")
+    pct_from_low = r52.get("pct_from_52w_low", 0) or 0
+    if pct_from_low > 50:
+        buy_criteria.append(f"{pct_from_low:.0f}% above 52w low")
+
+    # Volatility
+    if bb_pos > 60:
+        buy_criteria.append("Upper Bollinger territory")
+
+    # Minervini
+    if minervini and minervini.get("passes"):
+        buy_criteria.append("Minervini trend template passes")
+
+    # P&L
+    if pnl_pct > 10:
+        buy_criteria.append(f"Position up {pnl_pct:.0f}%")
+
+    sell_synergy = len(sell_criteria) >= SYNERGY_THRESHOLD
+    buy_synergy = len(buy_criteria) >= SYNERGY_THRESHOLD
+
+    return {
+        "sell_criteria": sell_criteria,
+        "buy_criteria": buy_criteria,
+        "sell_synergy": sell_synergy,
+        "buy_synergy": buy_synergy,
+        "sell_count": len(sell_criteria),
+        "buy_count": len(buy_criteria),
+    }
+
+
 def grade_minervini(stock_data):
     price = stock_data["current_price"]
     ma = stock_data.get("moving_averages", {})
