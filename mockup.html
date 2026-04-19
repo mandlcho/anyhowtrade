@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenScan — Portfolio Terminal</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* === RESET & BASE === */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-panel: #0f0f0f;
+  --bg-panel-header: #141414;
+  --border: #1a1a1a;
+  --border-accent: #2a2a2a;
+  --text-primary: #e8e6e3;
+  --text-secondary: #6b6b6b;
+  --text-muted: #3d3d3d;
+  --green: #4ec56c;
+  --green-dim: #2a6b3a;
+  --red: #e05252;
+  --red-dim: #6b2a2a;
+  --amber: #d4a843;
+  --amber-dim: #6b5a2a;
+  --cyan: #5ab4c4;
+  --blue: #5a8ec4;
+  --header-height: 42px;
+  --footer-height: 24px;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* === HEADER === */
+.header {
+  height: var(--header-height);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-accent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+}
+
+.header-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+.header-title span {
+  color: var(--text-muted);
+  font-weight: 300;
+}
+
+.header-status {
+  display: flex;
+  gap: 20px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.header-status .live {
+  color: var(--green);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* === MAIN GRID === */
+.main {
+  position: absolute;
+  top: var(--header-height);
+  bottom: var(--footer-height);
+  left: 0;
+  right: 0;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-auto-rows: min-content;
+  gap: 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Scrollbar styling */
+.main::-webkit-scrollbar { width: 4px; }
+.main::-webkit-scrollbar-track { background: var(--bg-primary); }
+.main::-webkit-scrollbar-thumb { background: var(--border-accent); border-radius: 2px; }
+
+/* === PANEL === */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.panel:hover {
+  border-color: var(--border-accent);
+}
+
+.panel-header {
+  background: var(--bg-panel-header);
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-header .tag {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.tag-live { background: var(--green-dim); color: var(--green); }
+.tag-alert { background: var(--red-dim); color: var(--red); }
+.tag-hold { background: var(--amber-dim); color: var(--amber); }
+
+.panel-body {
+  padding: 8px 10px;
+}
+
+/* === DATA ROWS === */
+.data-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 3px 0;
+  border-bottom: 1px solid #111;
+}
+
+.data-row:last-child { border-bottom: none; }
+
+.data-label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 300;
+}
+
+.data-value {
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.positive { color: var(--green); }
+.negative { color: var(--red); }
+.neutral { color: var(--text-primary); }
+.amber { color: var(--amber); }
+.cyan { color: var(--cyan); }
+
+/* === PORTFOLIO SUMMARY (wide panel) === */
+.panel-wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 700px) {
+  .panel-wide { grid-column: span 1; }
+}
+
+/* === PORTFOLIO TABLE === */
+.port-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.port-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-accent);
+}
+
+.port-table th:not(:first-child) {
+  text-align: right;
+}
+
+.port-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid #111;
+  font-variant-numeric: tabular-nums;
+}
+
+.port-table td:not(:first-child) {
+  text-align: right;
+}
+
+.port-table tr:hover {
+  background: #141414;
+}
+
+.ticker-cell {
+  font-weight: 600;
+  color: var(--amber);
+  cursor: pointer;
+}
+
+.ticker-cell:hover {
+  color: var(--text-primary);
+}
+
+.port-table .tag-sm {
+  font-size: 8px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* === MINI CHART PLACEHOLDER === */
+.mini-chart {
+  height: 60px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    transparent 100%
+  );
+  position: relative;
+  margin: 4px 0;
+  overflow: hidden;
+}
+
+.mini-chart svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* === SIGNAL CARD === */
+.signal-card {
+  padding: 6px 0;
+  border-bottom: 1px solid #111;
+}
+
+.signal-card:last-child { border-bottom: none; }
+
+.signal-ticker {
+  font-weight: 600;
+  color: var(--amber);
+  font-size: 12px;
+}
+
+.signal-type {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.signal-grade {
+  float: right;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.grade-a { color: var(--green); }
+.grade-b { color: var(--amber); }
+
+/* === GAUGE / METER === */
+.meter {
+  height: 3px;
+  background: var(--border);
+  border-radius: 1px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 0.5s ease;
+}
+
+/* === BIG NUMBER === */
+.big-number {
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.big-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* === WATCHLIST === */
+.watchlist-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid #111;
+}
+
+.watchlist-item:last-child { border-bottom: none; }
+
+.watchlist-ticker {
+  font-weight: 600;
+  color: var(--cyan);
+}
+
+.watchlist-reason {
+  font-size: 10px;
+  color: var(--text-secondary);
+  max-width: 60%;
+  text-align: right;
+}
+
+/* === FOOTER === */
+.footer {
+  height: var(--footer-height);
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.footer a {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+/* === SPARKLINE === */
+.sparkline {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* === SCANNER RESULTS GRID === */
+.scanner-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+
+.scanner-cell {
+  padding: 4px 6px;
+  font-size: 10px;
+  background: #111;
+}
+
+.scanner-cell-label {
+  color: var(--text-muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scanner-cell-value {
+  font-weight: 500;
+  margin-top: 1px;
+}
+
+/* === POSITION CARD MINI === */
+.pos-mini {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #111;
+}
+
+.pos-mini:last-child { border-bottom: none; }
+
+.pos-mini-ticker {
+  font-weight: 600;
+  color: var(--amber);
+  width: 45px;
+}
+
+.pos-mini-chart {
+  flex: 1;
+  height: 24px;
+}
+
+.pos-mini-pnl {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  width: 65px;
+  text-align: right;
+}
+
+/* === ANIMATIONS === */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.panel {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+.panel:nth-child(1) { animation-delay: 0.0s; }
+.panel:nth-child(2) { animation-delay: 0.05s; }
+.panel:nth-child(3) { animation-delay: 0.1s; }
+.panel:nth-child(4) { animation-delay: 0.15s; }
+.panel:nth-child(5) { animation-delay: 0.2s; }
+.panel:nth-child(6) { animation-delay: 0.25s; }
+.panel:nth-child(7) { animation-delay: 0.3s; }
+.panel:nth-child(8) { animation-delay: 0.35s; }
+.panel:nth-child(9) { animation-delay: 0.4s; }
+.panel:nth-child(10) { animation-delay: 0.45s; }
+
+.panel { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .panel { animation: none; opacity: 1; }
+  .header-status .live { animation: none; }
+}
+
+/* === DRAG & DROP === */
+.panel {
+  cursor: grab;
+  user-select: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.panel:active {
+  cursor: grabbing;
+}
+
+.panel.dragging {
+  opacity: 0.85;
+  transform: scale(1.03);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px var(--amber);
+  z-index: 1000;
+  position: fixed;
+  pointer-events: none;
+}
+
+.panel.drag-over {
+  border-color: var(--amber) !important;
+  box-shadow: inset 0 0 12px rgba(212, 168, 67, 0.08);
+}
+
+.drop-placeholder {
+  border: 1px dashed var(--amber);
+  background: rgba(212, 168, 67, 0.03);
+  border-radius: 0;
+  min-height: 80px;
+  transition: all 0.2s ease;
+}
+
+/* === DRAG HANDLE INDICATOR === */
+.panel-header {
+  cursor: grab;
+  position: relative;
+}
+
+.panel-header::before {
+  content: '⠿';
+  margin-right: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.panel:hover .panel-header::before {
+  opacity: 1;
+}
+
+/* === LOCK TOGGLE === */
+.lock-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.15s ease;
+}
+
+.lock-btn:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.lock-btn.locked {
+  border-color: var(--green-dim);
+  color: var(--green);
+}
+</style>
+</head>
+<body>
+
+<!-- === HEADER === -->
+<header class="header">
+  <div class="header-title">
+    OPENSCAN <span>// portfolio terminal</span>
+  </div>
+  <div class="header-status">
+    <button class="lock-btn" id="lockBtn" onclick="toggleLock()">UNLOCKED</button>
+    <span>SAT 2026-04-19</span>
+    <span>MKT CLOSED</span>
+    <span class="live">● LAST SCAN 15:59 ET</span>
+  </div>
+</header>
+
+<!-- === MAIN GRID === -->
+<main class="main">
+
+  <!-- PANEL 1: Portfolio Value -->
+  <div class="panel">
+    <div class="panel-header">Portfolio Value</div>
+    <div class="panel-body">
+      <div class="big-number neutral">$91,247.30</div>
+      <div class="big-label">TOTAL EQUITY</div>
+      <div style="margin-top: 10px;">
+        <div class="data-row">
+          <span class="data-label">Day P&L</span>
+          <span class="data-value negative">-$1,203.40 (-1.30%)</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">Unrealized P&L</span>
+          <span class="data-value negative">-$14,827.55 (-13.97%)</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">Total Cost Basis</span>
+          <span class="data-value neutral">$106,074.85</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">Positions</span>
+          <span class="data-value neutral">8</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">Win / Loss</span>
+          <span class="data-value"><span class="positive">3</span> / <span class="negative">5</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 2: Alerts -->
+  <div class="panel">
+    <div class="panel-header">Active Alerts <span class="tag tag-alert">3</span></div>
+    <div class="panel-body">
+      <div class="signal-card">
+        <span class="signal-grade negative">!</span>
+        <span class="signal-ticker">BBAI</span>
+        <div class="signal-type">Volume climax detected — RVOL 3.2x on -8.4% day. Distribution signal. Down -57.6% from cost.</div>
+      </div>
+      <div class="signal-card">
+        <span class="signal-grade negative">!</span>
+        <span class="signal-ticker">ASST</span>
+        <div class="signal-type">Bearish divergence — price near 20d high but RSI declining. Extended -43.2% below cost basis.</div>
+      </div>
+      <div class="signal-card">
+        <span class="signal-grade amber">⚠</span>
+        <span class="signal-ticker">SMR</span>
+        <div class="signal-type">Trading below MA50, MA150, MA200. Trend structure broken. Down -39.8% from cost.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 3: Holdings Table -->
+  <div class="panel panel-wide">
+    <div class="panel-header">Holdings <span class="tag tag-live">Live</span></div>
+    <div class="panel-body" style="padding: 0;">
+      <table class="port-table">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Price</th>
+            <th>P&L %</th>
+            <th>RSI</th>
+            <th>Ext 50MA</th>
+            <th>RVOL</th>
+            <th>Signal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="ticker-cell">AMZN <span class="tag-sm" style="background:var(--green-dim);color:var(--green);">HOLD</span></td>
+            <td>$249.99</td>
+            <td class="positive">+15.34%</td>
+            <td class="neutral">52.3</td>
+            <td class="neutral">+2.1%</td>
+            <td class="neutral">0.8x</td>
+            <td class="positive">—</td>
+          </tr>
+          <tr>
+            <td class="ticker-cell">UNH</td>
+            <td>$324.62</td>
+            <td class="positive">+1.10%</td>
+            <td class="neutral">48.7</td>
+            <td class="negative">-8.3%</td>
+            <td class="neutral">1.1x</td>
+            <td class="neutral">—</td>
+          </tr>
+          <tr>
+            <td class="ticker-cell">CIFR</td>
+            <td>$19.37</td>
+            <td class="positive">+10.89%</td>
+            <td class="neutral">55.1</td>
+            <td class="positive">+5.7%</td>
+            <td class="neutral">1.3x</td>
+            <td class="positive">—</td>
+          </tr>
+          <tr>
+            <td class="ticker-cell">CPRT</td>
+            <td>$47.82</td>
+            <td class="negative">-1.22%</td>
+            <td class="neutral">44.2</td>
+            <td class="negative">-3.1%</td>
+            <td class="neutral">0.9x</td>
+            <td class="neutral">—</td>
+          </tr>
+          <tr>
+            <td class="ticker-cell">IREN</td>
+            <td>$48.31</td>
+            <td class="negative">-12.34%</td>
+            <td class="neutral">41.8</td>
+            <td class="negative">-11.2%</td>
+            <td class="amber">1.8x</td>
+            <td class="amber">WATCH</td>
+          </tr>
+          <tr>
+            <td class="ticker-cell">SMR <span class="tag-sm" style="background:var(--red-dim);color:var(--red);">SELL</span></td>
+            <td>$12.65</td>
+            <td class="negative">-39.76%</td>
+            <td class="negative">31.4</td>
+            <td class="negative">-22.5%</td>
+            <td class="neutral">0.7x</td>
+            <td class="negative">BROKEN</td>
+          </tr>
+          <tr>
+            <td class="ticker-cell">BBAI <span class="tag-sm" style="background:var(--red-dim);color:var(--red);">SELL</span></td>
+            <td>$3.85</td>
+            <td class="negative">-57.60%</td>
+            <td class="negative">28.9</td>
+            <td class="negative">-31.4%</td>
+            <td class="negative">3.2x</td>
+            <td class="negative">V.CLIMAX</td>
+          </tr>
+          <tr>
+            <td class="ticker-cell">ASST <span class="tag-sm" style="background:var(--red-dim);color:var(--red);">SELL</span></td>
+            <td>$15.60</td>
+            <td class="negative">-43.17%</td>
+            <td class="amber">62.1</td>
+            <td class="negative">-18.7%</td>
+            <td class="amber">2.1x</td>
+            <td class="negative">B.DIV</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PANEL 4: Scanner Grades -->
+  <div class="panel">
+    <div class="panel-header">Scanner Grades — AMZN</div>
+    <div class="panel-body">
+      <div class="data-row">
+        <span class="data-label">Minervini Trend</span>
+        <span class="data-value grade-a">A</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">CAN SLIM</span>
+        <span class="data-value grade-b">B+</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Stage 2 Breakout</span>
+        <span class="data-value grade-a">A</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Bull Flag</span>
+        <span class="data-value grade-b">B</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">RS New High</span>
+        <span class="data-value grade-a">A+</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">VCP Pattern</span>
+        <span class="data-value" style="color: var(--text-muted);">—</span>
+      </div>
+      <div style="margin-top: 8px;">
+        <div class="big-label">CONFLUENCE SCORE</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px;">
+          <span class="big-number positive" style="font-size:22px;">82</span>
+          <span style="color:var(--text-secondary);font-size:10px;">/ 100 — TIER A</span>
+        </div>
+        <div class="meter"><div class="meter-fill" style="width:82%;background:var(--green);"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 5: Market Internals -->
+  <div class="panel">
+    <div class="panel-header">Market Internals</div>
+    <div class="panel-body">
+      <div class="data-row">
+        <span class="data-label">S&P 500</span>
+        <span class="data-value negative">5,282.70 (-0.74%)</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">NASDAQ</span>
+        <span class="data-value negative">16,286.45 (-0.89%)</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">VIX</span>
+        <span class="data-value amber">29.65</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">10Y Yield</span>
+        <span class="data-value neutral">4.33%</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Advance/Decline</span>
+        <span class="data-value negative">0.62</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">New Highs/Lows</span>
+        <span class="data-value negative">34 / 187</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Put/Call Ratio</span>
+        <span class="data-value amber">1.12</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 6: Blue Chip Watchlist -->
+  <div class="panel">
+    <div class="panel-header">Watchlist — Undervalued Blue Chips</div>
+    <div class="panel-body">
+      <div class="watchlist-item">
+        <div>
+          <span class="watchlist-ticker">MSFT</span>
+          <span class="data-value" style="margin-left:8px;">$388.45</span>
+        </div>
+        <span class="watchlist-reason">-18% from ATH, PE below 5Y avg</span>
+      </div>
+      <div class="watchlist-item">
+        <div>
+          <span class="watchlist-ticker">AMD</span>
+          <span class="data-value" style="margin-left:8px;">$98.72</span>
+        </div>
+        <span class="watchlist-reason">Near 200MA support, RSI 33</span>
+      </div>
+      <div class="watchlist-item">
+        <div>
+          <span class="watchlist-ticker">GOOGL</span>
+          <span class="data-value" style="margin-left:8px;">$156.30</span>
+        </div>
+        <span class="watchlist-reason">VCP forming, Munger 200W MA hold</span>
+      </div>
+      <div class="watchlist-item">
+        <div>
+          <span class="watchlist-ticker">AAPL</span>
+          <span class="data-value" style="margin-left:8px;">$198.15</span>
+        </div>
+        <span class="watchlist-reason">Buffett value score A, div yield 0.6%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 7: Position Detail — UNH -->
+  <div class="panel">
+    <div class="panel-header">Position Detail — UNH <span class="tag tag-hold">DIV</span></div>
+    <div class="panel-body">
+      <div class="scanner-grid">
+        <div class="scanner-cell">
+          <div class="scanner-cell-label">Price</div>
+          <div class="scanner-cell-value neutral">$324.62</div>
+        </div>
+        <div class="scanner-cell">
+          <div class="scanner-cell-label">Cost Basis</div>
+          <div class="scanner-cell-value neutral">$321.08</div>
+        </div>
+        <div class="scanner-cell">
+          <div class="scanner-cell-label">P&L</div>
+          <div class="scanner-cell-value positive">+$354.10</div>
+        </div>
+        <div class="scanner-cell">
+          <div class="scanner-cell-label">52W Range</div>
+          <div class="scanner-cell-value neutral">44.8%</div>
+        </div>
+        <div class="scanner-cell">
+          <div class="scanner-cell-label">RSI (14)</div>
+          <div class="scanner-cell-value neutral">48.7</div>
+        </div>
+        <div class="scanner-cell">
+          <div class="scanner-cell-label">MACD</div>
+          <div class="scanner-cell-value negative">-2.14</div>
+        </div>
+        <div class="scanner-cell">
+          <div class="scanner-cell-label">BB Position</div>
+          <div class="scanner-cell-value neutral">38.2%</div>
+        </div>
+        <div class="scanner-cell">
+          <div class="scanner-cell-label">RVOL</div>
+          <div class="scanner-cell-value neutral">1.1x</div>
+        </div>
+      </div>
+      <div style="margin-top: 8px;">
+        <div class="scanner-cell-label">AI ANALYSIS</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;line-height:1.5;">
+          Neutral posture. Holding 50MA, dividend intact. No sell signals triggered. Watch for break below $310 support or MACD crossover bearish.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 8: Momentum Heatmap -->
+  <div class="panel">
+    <div class="panel-header">Momentum Heatmap</div>
+    <div class="panel-body">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:3px;">
+        <div style="background:var(--green-dim);padding:8px 4px;text-align:center;">
+          <div style="font-weight:600;color:var(--green);font-size:12px;">AMZN</div>
+          <div style="font-size:10px;color:var(--green);margin-top:2px;">+15.3%</div>
+        </div>
+        <div style="background:var(--green-dim);padding:8px 4px;text-align:center;">
+          <div style="font-weight:600;color:var(--green);font-size:12px;">CIFR</div>
+          <div style="font-size:10px;color:var(--green);margin-top:2px;">+10.9%</div>
+        </div>
+        <div style="background:#1a1a0a;padding:8px 4px;text-align:center;">
+          <div style="font-weight:600;color:var(--amber);font-size:12px;">UNH</div>
+          <div style="font-size:10px;color:var(--amber);margin-top:2px;">+1.1%</div>
+        </div>
+        <div style="background:#1a1510;padding:8px 4px;text-align:center;">
+          <div style="font-weight:600;color:var(--text-secondary);font-size:12px;">CPRT</div>
+          <div style="font-size:10px;color:var(--red);margin-top:2px;">-1.2%</div>
+        </div>
+        <div style="background:var(--red-dim);padding:8px 4px;text-align:center;">
+          <div style="font-weight:600;color:var(--red);font-size:12px;">IREN</div>
+          <div style="font-size:10px;color:var(--red);margin-top:2px;">-12.3%</div>
+        </div>
+        <div style="background:var(--red-dim);padding:8px 4px;text-align:center;">
+          <div style="font-weight:600;color:var(--red);font-size:12px;">SMR</div>
+          <div style="font-size:10px;color:var(--red);margin-top:2px;">-39.8%</div>
+        </div>
+        <div style="background:#4a1515;padding:8px 4px;text-align:center;">
+          <div style="font-weight:600;color:var(--red);font-size:12px;">ASST</div>
+          <div style="font-size:10px;color:var(--red);margin-top:2px;">-43.2%</div>
+        </div>
+        <div style="background:#5a1010;padding:8px 4px;text-align:center;">
+          <div style="font-weight:600;color:var(--red);font-size:12px;">BBAI</div>
+          <div style="font-size:10px;color:var(--red);margin-top:2px;">-57.6%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 9: Sell Signal Summary -->
+  <div class="panel">
+    <div class="panel-header">Sell Signal Matrix</div>
+    <div class="panel-body" style="padding:0;">
+      <table class="port-table" style="font-size:10px;">
+        <thead>
+          <tr>
+            <th></th>
+            <th>B.Div</th>
+            <th>V.Clmx</th>
+            <th>< MA50</th>
+            <th>RSI&lt;30</th>
+            <th>Ext&gt;20%</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="ticker-cell" style="font-size:10px;">AMZN</td><td>·</td><td>·</td><td>·</td><td>·</td><td>·</td></tr>
+          <tr><td class="ticker-cell" style="font-size:10px;">UNH</td><td>·</td><td>·</td><td>·</td><td>·</td><td>·</td></tr>
+          <tr><td class="ticker-cell" style="font-size:10px;">CIFR</td><td>·</td><td>·</td><td>·</td><td>·</td><td>·</td></tr>
+          <tr><td class="ticker-cell" style="font-size:10px;">CPRT</td><td>·</td><td>·</td><td>·</td><td>·</td><td>·</td></tr>
+          <tr><td class="ticker-cell" style="font-size:10px;">IREN</td><td>·</td><td>·</td><td class="negative">■</td><td>·</td><td>·</td></tr>
+          <tr><td class="ticker-cell" style="font-size:10px;">SMR</td><td>·</td><td>·</td><td class="negative">■</td><td>·</td><td class="negative">■</td></tr>
+          <tr><td class="ticker-cell" style="font-size:10px;">BBAI</td><td>·</td><td class="negative">■</td><td class="negative">■</td><td class="negative">■</td><td class="negative">■</td></tr>
+          <tr><td class="ticker-cell" style="font-size:10px;">ASST</td><td class="negative">■</td><td>·</td><td class="negative">■</td><td>·</td><td class="negative">■</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PANEL 10: Last Scan Log -->
+  <div class="panel">
+    <div class="panel-header">Scan Log</div>
+    <div class="panel-body" style="font-size:10px; color:var(--text-secondary);">
+      <div style="color:var(--text-muted);">15:59:04</div>
+      <div>Fetching 8 positions via yfinance...</div>
+      <div style="margin-top:4px;color:var(--text-muted);">15:59:07</div>
+      <div>Computing RSI, MACD, Bollinger, RVOL...</div>
+      <div style="margin-top:4px;color:var(--text-muted);">15:59:08</div>
+      <div>Running 47 scanners from extracted-prompts...</div>
+      <div style="margin-top:4px;color:var(--text-muted);">15:59:12</div>
+      <div style="color:var(--green);">Scan complete. 3 alerts generated.</div>
+      <div style="margin-top:4px;color:var(--text-muted);">15:59:12</div>
+      <div>Checking blue chip watchlist (25 tickers)...</div>
+      <div style="margin-top:4px;color:var(--text-muted);">15:59:18</div>
+      <div style="color:var(--cyan);">4 undervalued candidates found.</div>
+      <div style="margin-top:8px;color:var(--text-muted);">Next scan: Mon 09:45 ET</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- === FOOTER === -->
+<footer class="footer">
+  <span>OPENSCAN v0.2 — data via yfinance — analysis via claude</span>
+  <span>localhost:3000</span>
+</footer>
+
+<script>
+/* === DRAG & DROP WITH SNAP === */
+(function() {
+  let dragEl = null;
+  let placeholder = null;
+  let offsetX = 0, offsetY = 0;
+  let locked = false;
+  const STORAGE_KEY = 'openscan-panel-order';
+
+  // Restore saved order on load
+  window.addEventListener('DOMContentLoaded', restoreOrder);
+
+  function getMain() { return document.querySelector('.main'); }
+  function getPanels() { return [...getMain().querySelectorAll('.panel')]; }
+
+  function toggleLock() {
+    locked = !locked;
+    const btn = document.getElementById('lockBtn');
+    btn.textContent = locked ? 'LOCKED' : 'UNLOCKED';
+    btn.classList.toggle('locked', locked);
+    getPanels().forEach(p => {
+      p.style.cursor = locked ? 'default' : 'grab';
+      p.querySelector('.panel-header').style.cursor = locked ? 'default' : 'grab';
+    });
+  }
+  window.toggleLock = toggleLock;
+
+  // Save panel order to localStorage
+  function saveOrder() {
+    const ids = getPanels().map(p => p.dataset.panelId);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+  }
+
+  // Restore panel order from localStorage
+  function restoreOrder() {
+    // Assign IDs to panels if they don't have them
+    getPanels().forEach((p, i) => {
+      if (!p.dataset.panelId) p.dataset.panelId = 'panel-' + i;
+    });
+
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+
+    try {
+      const order = JSON.parse(saved);
+      const main = getMain();
+      const panels = getPanels();
+      const panelMap = {};
+      panels.forEach(p => panelMap[p.dataset.panelId] = p);
+
+      order.forEach(id => {
+        if (panelMap[id]) main.appendChild(panelMap[id]);
+      });
+    } catch(e) {}
+  }
+
+  // Mouse/touch events on panel headers
+  document.addEventListener('mousedown', startDrag);
+  document.addEventListener('touchstart', startDrag, { passive: false });
+
+  function startDrag(e) {
+    if (locked) return;
+
+    // Only drag from panel-header
+    const header = e.target.closest('.panel-header');
+    if (!header) return;
+
+    const panel = header.closest('.panel');
+    if (!panel) return;
+
+    e.preventDefault();
+
+    const rect = panel.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    offsetX = clientX - rect.left;
+    offsetY = clientY - rect.top;
+
+    dragEl = panel;
+
+    // Create placeholder
+    placeholder = document.createElement('div');
+    placeholder.className = 'drop-placeholder';
+    placeholder.style.width = rect.width + 'px';
+    placeholder.style.height = rect.height + 'px';
+    if (panel.classList.contains('panel-wide')) {
+      placeholder.style.gridColumn = 'span 2';
+    }
+    panel.parentNode.insertBefore(placeholder, panel);
+
+    // Float the panel
+    panel.classList.add('dragging');
+    panel.style.width = rect.width + 'px';
+    panel.style.height = rect.height + 'px';
+    panel.style.left = rect.left + 'px';
+    panel.style.top = rect.top + 'px';
+
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('touchmove', onDrag, { passive: false });
+    document.addEventListener('mouseup', endDrag);
+    document.addEventListener('touchend', endDrag);
+  }
+
+  function onDrag(e) {
+    if (!dragEl) return;
+    e.preventDefault();
+
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    dragEl.style.left = (clientX - offsetX) + 'px';
+    dragEl.style.top = (clientY - offsetY) + 'px';
+
+    // Find closest panel to swap with
+    const main = getMain();
+    const panels = [...main.querySelectorAll('.panel:not(.dragging)')];
+    let closest = null;
+    let closestDist = Infinity;
+
+    panels.forEach(p => {
+      const r = p.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const dist = Math.hypot(clientX - cx, clientY - cy);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closest = p;
+      }
+    });
+
+    // Remove drag-over from all
+    panels.forEach(p => p.classList.remove('drag-over'));
+
+    if (closest && closestDist < 200) {
+      closest.classList.add('drag-over');
+
+      // Move placeholder to before or after closest
+      const r = closest.getBoundingClientRect();
+      const midY = r.top + r.height / 2;
+      if (clientY < midY) {
+        main.insertBefore(placeholder, closest);
+      } else {
+        main.insertBefore(placeholder, closest.nextSibling);
+      }
+    }
+  }
+
+  function endDrag(e) {
+    if (!dragEl) return;
+
+    // Remove drag-over from all panels
+    getPanels().forEach(p => p.classList.remove('drag-over'));
+
+    // Snap into placeholder position
+    dragEl.classList.remove('dragging');
+    dragEl.style.width = '';
+    dragEl.style.height = '';
+    dragEl.style.left = '';
+    dragEl.style.top = '';
+    dragEl.style.position = '';
+
+    // Insert panel where placeholder is
+    if (placeholder && placeholder.parentNode) {
+      placeholder.parentNode.insertBefore(dragEl, placeholder);
+      placeholder.remove();
+    }
+
+    dragEl = null;
+    placeholder = null;
+
+    document.removeEventListener('mousemove', onDrag);
+    document.removeEventListener('touchmove', onDrag);
+    document.removeEventListener('mouseup', endDrag);
+    document.removeEventListener('touchend', endDrag);
+
+    // Save new order
+    saveOrder();
+  }
+})();
+</script>
+</body>
+</html>
