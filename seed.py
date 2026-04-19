@@ -1,4 +1,3 @@
-# seed.py
 """Seed the database with the current portfolio positions."""
 
 from db import init_db, add_position, set_watchlist
