@@ -1,1 +1,1731 @@
-<!DOCTYPE html><html><head><title>OpenScan</title></head><body><h1>OpenScan</h1></body></html>
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenScan — Portfolio Terminal</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+/* === RESET & BASE === */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-panel: #0f0f0f;
+  --bg-panel-header: #141414;
+  --border: #1a1a1a;
+  --border-accent: #2a2a2a;
+  --text-primary: #e8e6e3;
+  --text-secondary: #6b6b6b;
+  --text-muted: #3d3d3d;
+  --green: #4ec56c;
+  --green-dim: #2a6b3a;
+  --red: #e05252;
+  --red-dim: #6b2a2a;
+  --amber: #d4a843;
+  --amber-dim: #6b5a2a;
+  --cyan: #5ab4c4;
+  --blue: #5a8ec4;
+  --header-height: 42px;
+  --footer-height: 24px;
+}
+
+[data-theme="light"] {
+  --bg-primary: #f0ede8;
+  --bg-panel: #faf8f5;
+  --bg-panel-header: #edeae5;
+  --border: #d5d0c8;
+  --border-accent: #c0bab0;
+  --text-primary: #1a1a1a;
+  --text-secondary: #707070;
+  --text-muted: #a0a0a0;
+  --green: #2d8a4e;
+  --green-dim: #d0f0d8;
+  --red: #c43030;
+  --red-dim: #f5d0d0;
+  --amber: #b08520;
+  --amber-dim: #f0e0b0;
+  --cyan: #2080a0;
+  --blue: #3060a0;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* === HEADER === */
+.header {
+  height: var(--header-height);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-accent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+}
+
+.header-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+.header-title span {
+  color: var(--text-muted);
+  font-weight: 300;
+}
+
+.header-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.header-status {
+  display: flex;
+  gap: 20px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  align-items: center;
+}
+
+.header-status .live {
+  color: var(--green);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* === BUTTONS === */
+.btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.15s ease;
+}
+
+.btn:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-scan {
+  border-color: var(--green-dim);
+  color: var(--green);
+  font-weight: 600;
+}
+
+.btn-scan:hover:not(:disabled) {
+  border-color: var(--green);
+  background: var(--green-dim);
+}
+
+.btn-scan:disabled {
+  border-color: var(--amber-dim);
+  color: var(--amber);
+}
+
+.btn-add {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  font-weight: 600;
+  font-size: 12px;
+  padding: 1px 7px;
+}
+
+.btn-add:hover {
+  background: rgba(90,180,196,0.1);
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.lock-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.15s ease;
+}
+
+.lock-btn:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.lock-btn.locked {
+  border-color: var(--green-dim);
+  color: var(--green);
+}
+
+/* === MAIN GRID === */
+.main {
+  position: absolute;
+  top: var(--header-height);
+  bottom: var(--footer-height);
+  left: 0;
+  right: 0;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-auto-rows: min-content;
+  gap: 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.main::-webkit-scrollbar { width: 4px; }
+.main::-webkit-scrollbar-track { background: var(--bg-primary); }
+.main::-webkit-scrollbar-thumb { background: var(--border-accent); border-radius: 2px; }
+
+/* === PANEL === */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.panel:hover {
+  border-color: var(--border-accent);
+}
+
+.panel-header {
+  background: var(--bg-panel-header);
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-header .tag {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.tag-live { background: var(--green-dim); color: var(--green); }
+.tag-alert { background: var(--red-dim); color: var(--red); }
+.tag-hold { background: var(--amber-dim); color: var(--amber); }
+
+.panel-body {
+  padding: 8px 10px;
+}
+
+/* === DATA ROWS === */
+.data-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-row:last-child { border-bottom: none; }
+
+.data-label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 300;
+}
+
+.data-value {
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.positive { color: var(--green); }
+.negative { color: var(--red); }
+.neutral { color: var(--text-primary); }
+.amber { color: var(--amber); }
+.cyan { color: var(--cyan); }
+
+/* === WIDE PANEL === */
+.panel-wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 700px) {
+  .panel-wide { grid-column: span 1; }
+}
+
+/* === PORTFOLIO TABLE === */
+.port-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.port-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-accent);
+}
+
+.port-table th:not(:first-child) {
+  text-align: right;
+}
+
+.port-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.port-table td:not(:first-child) {
+  text-align: right;
+}
+
+.port-table tr:hover {
+  background: var(--bg-panel-header);
+}
+
+.port-table tr.selected-row {
+  background: var(--bg-panel-header);
+  outline: 1px solid var(--amber-dim);
+}
+
+.ticker-cell {
+  font-weight: 600;
+  color: var(--amber);
+  cursor: pointer;
+}
+
+.ticker-cell:hover {
+  color: var(--text-primary);
+}
+
+.port-table .tag-sm {
+  font-size: 8px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* === SIGNAL CARD === */
+.signal-card {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.signal-card:last-child { border-bottom: none; }
+
+.signal-ticker {
+  font-weight: 600;
+  color: var(--amber);
+  font-size: 12px;
+}
+
+.signal-type {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.signal-grade {
+  float: right;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.grade-a { color: var(--green); }
+.grade-b { color: var(--amber); }
+
+/* === GAUGE / METER === */
+.meter {
+  height: 3px;
+  background: var(--border);
+  border-radius: 1px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 0.5s ease;
+}
+
+/* === BIG NUMBER === */
+.big-number {
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.big-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* === WATCHLIST === */
+.watchlist-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.watchlist-item:last-child { border-bottom: none; }
+
+.watchlist-ticker {
+  font-weight: 600;
+  color: var(--cyan);
+}
+
+.watchlist-reason {
+  font-size: 10px;
+  color: var(--text-secondary);
+  max-width: 60%;
+  text-align: right;
+}
+
+/* === SCANNER GRID === */
+.scanner-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+
+.scanner-cell {
+  padding: 4px 6px;
+  font-size: 10px;
+  background: var(--bg-panel-header);
+}
+
+.scanner-cell-label {
+  color: var(--text-muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scanner-cell-value {
+  font-weight: 500;
+  margin-top: 1px;
+}
+
+/* === FOOTER === */
+.footer {
+  height: var(--footer-height);
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* === ANIMATIONS === */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.panel {
+  animation: fadeIn 0.3s ease forwards;
+  opacity: 0;
+}
+
+.panel:nth-child(1) { animation-delay: 0.0s; }
+.panel:nth-child(2) { animation-delay: 0.05s; }
+.panel:nth-child(3) { animation-delay: 0.1s; }
+.panel:nth-child(4) { animation-delay: 0.15s; }
+.panel:nth-child(5) { animation-delay: 0.2s; }
+.panel:nth-child(6) { animation-delay: 0.25s; }
+.panel:nth-child(7) { animation-delay: 0.3s; }
+.panel:nth-child(8) { animation-delay: 0.35s; }
+.panel:nth-child(9) { animation-delay: 0.4s; }
+.panel:nth-child(10) { animation-delay: 0.45s; }
+.panel:nth-child(11) { animation-delay: 0.5s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .panel { animation: none; opacity: 1; }
+  .header-status .live { animation: none; }
+}
+
+/* === DRAG & DROP === */
+.panel {
+  cursor: grab;
+  user-select: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.panel:active {
+  cursor: grabbing;
+}
+
+.panel.dragging {
+  opacity: 0.85;
+  transform: scale(1.03);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px var(--amber);
+  z-index: 1000;
+  position: fixed;
+  pointer-events: none;
+}
+
+.panel.drag-over {
+  border-color: var(--amber) !important;
+  box-shadow: inset 0 0 12px rgba(212, 168, 67, 0.08);
+}
+
+.drop-placeholder {
+  border: 1px dashed var(--amber);
+  background: rgba(212, 168, 67, 0.03);
+  border-radius: 0;
+  min-height: 80px;
+  transition: all 0.2s ease;
+}
+
+/* === DRAG HANDLE === */
+.panel-header {
+  cursor: grab;
+  position: relative;
+}
+
+.panel-header::before {
+  content: '\u2807';
+  margin-right: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.panel:hover .panel-header::before {
+  opacity: 1;
+}
+
+/* === LOG PANELS === */
+.log-container {
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.log-container::-webkit-scrollbar { width: 3px; }
+.log-container::-webkit-scrollbar-track { background: var(--bg-panel); }
+.log-container::-webkit-scrollbar-thumb { background: var(--border-accent); border-radius: 2px; }
+
+.log-entry { padding: 2px 0; border-bottom: 1px solid var(--border); }
+.log-ts { color: var(--text-muted); }
+.log-info { color: var(--text-secondary); }
+.log-debug { color: var(--text-muted); }
+.log-warn { color: var(--amber); }
+.log-error { color: var(--red); }
+.log-success { color: var(--green); }
+
+/* === DEBUG LOG === */
+.debug-panel .panel-body { padding: 0; }
+.debug-header-controls { display: flex; gap: 4px; }
+.debug-header-controls button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 8px;
+  padding: 1px 5px;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+}
+.debug-header-controls button:hover,
+.debug-header-controls button.active {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.debug-log-container {
+  max-height: 250px;
+  overflow-y: auto;
+  padding: 6px 10px;
+  font-size: 10px;
+}
+.debug-log-container::-webkit-scrollbar { width: 3px; }
+.debug-log-container::-webkit-scrollbar-track { background: var(--bg-panel); }
+.debug-log-container::-webkit-scrollbar-thumb { background: var(--border-accent); border-radius: 2px; }
+
+.debug-collapsed .debug-log-container { display: none; }
+.debug-collapsed .panel-body { display: none; }
+
+/* === CHART CONTAINER === */
+.chart-container {
+  height: 180px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+}
+
+/* === MODAL === */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 2000;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-accent);
+  padding: 20px;
+  min-width: 340px;
+  max-width: 420px;
+}
+
+.modal h3 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin-bottom: 16px;
+}
+
+.modal label {
+  display: block;
+  font-size: 10px;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  margin-top: 10px;
+}
+
+.modal input, .modal select {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  outline: none;
+}
+
+.modal input:focus, .modal select:focus {
+  border-color: var(--amber);
+}
+
+.modal-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.modal-actions button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 5px 14px;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+
+.modal-actions .btn-primary {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.modal-actions .btn-primary:hover {
+  background: var(--green-dim);
+}
+
+.modal-actions button:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+/* === DELETE BTN === */
+.btn-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 3px;
+  font-family: inherit;
+}
+.btn-delete:hover { color: var(--red); }
+
+/* === HEATMAP === */
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+}
+
+.heatmap-tile {
+  padding: 8px 4px;
+  text-align: center;
+}
+
+.heatmap-ticker {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.heatmap-pnl {
+  font-size: 10px;
+  margin-top: 2px;
+}
+</style>
+</head>
+<body>
+
+<!-- === HEADER === -->
+<header class="header">
+  <div class="header-title">
+    OPENSCAN <span>// portfolio terminal</span>
+  </div>
+  <div class="header-status">
+    <div class="header-controls">
+      <button class="btn btn-scan" id="scanBtn" onclick="triggerScan()">SCAN</button>
+      <button class="btn btn-add" id="addBtn" onclick="openAddModal()" title="Add Position">+</button>
+      <button class="btn" id="themeBtn" onclick="toggleTheme()">LIGHT</button>
+      <button class="lock-btn" id="lockBtn" onclick="toggleLock()">UNLOCKED</button>
+    </div>
+    <span id="dateDisplay"></span>
+    <span id="mktStatus">MKT --</span>
+    <span class="live" id="lastScan">● NO SCAN</span>
+  </div>
+</header>
+
+<!-- === MAIN GRID === -->
+<main class="main" id="mainGrid">
+
+  <!-- PANEL 1: Portfolio Value -->
+  <div class="panel" data-panel-id="panel-portfolio-value">
+    <div class="panel-header">Portfolio Value</div>
+    <div class="panel-body" id="panelPortfolioValue">
+      <div class="big-number neutral">--</div>
+      <div class="big-label">TOTAL EQUITY</div>
+    </div>
+  </div>
+
+  <!-- PANEL 2: Active Alerts -->
+  <div class="panel" data-panel-id="panel-alerts">
+    <div class="panel-header">Active Alerts <span class="tag tag-alert" id="alertCount">0</span></div>
+    <div class="panel-body" id="panelAlerts">
+      <div style="color:var(--text-muted);font-size:11px;">No alerts</div>
+    </div>
+  </div>
+
+  <!-- PANEL 3: Holdings Table -->
+  <div class="panel panel-wide" data-panel-id="panel-holdings">
+    <div class="panel-header">Holdings <span class="tag tag-live">Live</span></div>
+    <div class="panel-body" style="padding: 0;" id="panelHoldings">
+      <table class="port-table">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Price</th>
+            <th>P&amp;L %</th>
+            <th>RSI</th>
+            <th>Ext 50MA</th>
+            <th>RVOL</th>
+            <th>Signal</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="holdingsBody">
+          <tr><td colspan="8" style="color:var(--text-muted);text-align:center;padding:16px;">No data</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PANEL 4: Scanner Grades -->
+  <div class="panel" data-panel-id="panel-scanner-grades">
+    <div class="panel-header" id="scannerGradesHeader">Scanner Grades</div>
+    <div class="panel-body" id="panelScannerGrades">
+      <div style="color:var(--text-muted);font-size:11px;">Select a ticker</div>
+    </div>
+  </div>
+
+  <!-- PANEL 5: Market Internals -->
+  <div class="panel" data-panel-id="panel-market-internals">
+    <div class="panel-header">Market Internals</div>
+    <div class="panel-body" id="panelMarketInternals">
+      <div style="color:var(--text-muted);font-size:11px;">No data</div>
+    </div>
+  </div>
+
+  <!-- PANEL 6: Blue Chip Watchlist -->
+  <div class="panel" data-panel-id="panel-watchlist">
+    <div class="panel-header">Watchlist — Undervalued Blue Chips</div>
+    <div class="panel-body" id="panelWatchlist">
+      <div style="color:var(--text-muted);font-size:11px;">No data</div>
+    </div>
+  </div>
+
+  <!-- PANEL 7: Position Detail -->
+  <div class="panel" data-panel-id="panel-position-detail">
+    <div class="panel-header" id="posDetailHeader">Position Detail</div>
+    <div class="panel-body" id="panelPositionDetail">
+      <div style="color:var(--text-muted);font-size:11px;">Select a ticker</div>
+    </div>
+  </div>
+
+  <!-- PANEL 8: Momentum Heatmap -->
+  <div class="panel" data-panel-id="panel-heatmap">
+    <div class="panel-header">Momentum Heatmap</div>
+    <div class="panel-body" id="panelHeatmap">
+      <div style="color:var(--text-muted);font-size:11px;">No data</div>
+    </div>
+  </div>
+
+  <!-- PANEL 9: Sell Signal Matrix -->
+  <div class="panel" data-panel-id="panel-sell-signals">
+    <div class="panel-header">Sell Signal Matrix</div>
+    <div class="panel-body" style="padding:0;" id="panelSellSignals">
+      <div style="color:var(--text-muted);font-size:11px;padding:10px;">No data</div>
+    </div>
+  </div>
+
+  <!-- PANEL 10: Scan Log -->
+  <div class="panel" data-panel-id="panel-scan-log">
+    <div class="panel-header">Scan Log</div>
+    <div class="panel-body" style="padding:4px 10px;">
+      <div class="log-container" id="scanLogContainer">
+        <div style="color:var(--text-muted);font-size:10px;">Waiting for scan...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 11: Debug Log -->
+  <div class="panel debug-panel" data-panel-id="panel-debug-log" id="debugPanel">
+    <div class="panel-header">
+      <span>Debug Log</span>
+      <div class="debug-header-controls">
+        <button onclick="toggleDebugFilter('DEBUG')" class="active" data-level="DEBUG">DBG</button>
+        <button onclick="toggleDebugFilter('INFO')" class="active" data-level="INFO">INF</button>
+        <button onclick="toggleDebugFilter('WARN')" class="active" data-level="WARN">WRN</button>
+        <button onclick="toggleDebugFilter('ERROR')" class="active" data-level="ERROR">ERR</button>
+        <button onclick="clearDebugLog()">CLR</button>
+        <button onclick="toggleDebugCollapse()" id="debugCollapseBtn">SHOW</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="debug-log-container" id="debugLogContainer"></div>
+    </div>
+  </div>
+
+</main>
+
+<!-- === ADD POSITION MODAL === -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <h3>Add Position</h3>
+    <label>Ticker</label>
+    <input type="text" id="modalTicker" placeholder="AAPL" maxlength="10">
+    <label>Shares</label>
+    <input type="number" id="modalShares" placeholder="100" min="0" step="any">
+    <label>Cost Basis (per share)</label>
+    <input type="number" id="modalCost" placeholder="150.00" min="0" step="0.01">
+    <label>Tag</label>
+    <select id="modalTag">
+      <option value="">None</option>
+      <option value="hold">HOLD</option>
+      <option value="sell">SELL</option>
+      <option value="div">DIV</option>
+    </select>
+    <div class="modal-actions">
+      <button onclick="closeAddModal()">CANCEL</button>
+      <button class="btn-primary" onclick="submitAddPosition()">ADD</button>
+    </div>
+  </div>
+</div>
+
+<!-- === FOOTER === -->
+<footer class="footer">
+  <span>OPENSCAN v0.2 — data via yfinance — analysis via claude</span>
+  <span id="footerHost"></span>
+</footer>
+
+<script>
+/* ============================================================
+   OpenScan Dashboard — Full Frontend
+   ============================================================ */
+
+// --- State ---
+var scanData = null;
+var selectedTicker = null;
+var locked = false;
+var debugFilters = { DEBUG: true, INFO: true, WARN: true, ERROR: true };
+var debugCollapsed = true;
+var chart = null;
+var candleSeries = null;
+var eventSource = null;
+
+// --- Helpers ---
+function $(id) { return document.getElementById(id); }
+function fmt(n, d) { if (d === undefined) d = 2; return n == null ? '\u2014' : Number(n).toFixed(d); }
+function fmtDollar(n, d) {
+  if (d === undefined) d = 2;
+  if (n == null) return '\u2014';
+  var abs = Math.abs(n).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return n < 0 ? '-$' + abs : '$' + abs;
+}
+function fmtPct(n, d) {
+  if (d === undefined) d = 2;
+  if (n == null) return '\u2014';
+  return (n >= 0 ? '+' : '') + n.toFixed(d) + '%';
+}
+function pnlClass(n) { return n == null ? 'neutral' : n > 0 ? 'positive' : n < 0 ? 'negative' : 'neutral'; }
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function nowTs() {
+  return new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+// --- Theme ---
+function initTheme() {
+  var saved = localStorage.getItem('openscan-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+  updateThemeBtn();
+}
+
+function toggleTheme() {
+  var cur = document.documentElement.getAttribute('data-theme');
+  var next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('openscan-theme', next);
+  updateThemeBtn();
+  if (selectedTicker && scanData) loadChart(selectedTicker);
+}
+
+function updateThemeBtn() {
+  var theme = document.documentElement.getAttribute('data-theme');
+  $('themeBtn').textContent = theme === 'dark' ? 'LIGHT' : 'DARK';
+}
+
+// --- Date display ---
+function updateDateDisplay() {
+  var d = new Date();
+  var days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  $('dateDisplay').textContent = days[d.getDay()] + ' ' + d.toISOString().slice(0,10);
+}
+
+// --- API calls ---
+function apiGet(path) {
+  return fetch('/api' + path).then(function(r) {
+    if (!r.ok) return null;
+    return r.json();
+  }).catch(function(e) {
+    addDebugLog('ERROR', 'API GET ' + path + ' failed: ' + e.message);
+    return null;
+  });
+}
+
+function apiPost(path, body) {
+  return fetch('/api' + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function(r) {
+    if (!r.ok) { addDebugLog('ERROR', 'API POST ' + path + ' status ' + r.status); return null; }
+    return r.json();
+  }).catch(function(e) {
+    addDebugLog('ERROR', 'API POST ' + path + ' failed: ' + e.message);
+    return null;
+  });
+}
+
+function apiDelete(path) {
+  return fetch('/api' + path, { method: 'DELETE' }).then(function(r) {
+    return r.ok;
+  }).catch(function(e) {
+    addDebugLog('ERROR', 'API DELETE ' + path + ' failed: ' + e.message);
+    return false;
+  });
+}
+
+// --- Scan ---
+function triggerScan() {
+  var btn = $('scanBtn');
+  btn.disabled = true;
+  btn.textContent = 'SCANNING...';
+  addScanLog('Triggering scan...');
+  addDebugLog('INFO', 'POST /api/scan triggered');
+  apiPost('/scan').then(function(result) {
+    if (result) {
+      scanData = result;
+      renderAll();
+    }
+    btn.disabled = false;
+    btn.textContent = 'SCAN';
+    if (result) addScanLog('Scan complete.');
+  });
+}
+
+function loadLatest() {
+  addDebugLog('INFO', 'Loading latest scan...');
+  apiGet('/latest').then(function(data) {
+    if (data && data.timestamp) {
+      var age = (Date.now() - new Date(data.timestamp).getTime()) / 1000;
+      addDebugLog('DEBUG', 'Latest scan age: ' + Math.round(age) + 's');
+      scanData = data;
+      renderAll();
+      if (age > 300) {
+        addDebugLog('INFO', 'Scan stale (>5min), auto-triggering...');
+        triggerScan();
+      }
+    } else {
+      addDebugLog('INFO', 'No existing scan, auto-triggering...');
+      triggerScan();
+    }
+  });
+}
+
+// --- SSE ---
+function connectSSE() {
+  if (eventSource) eventSource.close();
+  try {
+    eventSource = new EventSource('/api/events');
+    eventSource.addEventListener('log', function(e) {
+      try {
+        var d = JSON.parse(e.data);
+        var level = (d.level || 'INFO').toUpperCase();
+        var msg = d.message || d.msg || e.data;
+        if (level === 'INFO') addScanLog(msg);
+        addDebugLog(level, msg);
+      } catch(err) {
+        addScanLog(e.data);
+        addDebugLog('INFO', e.data);
+      }
+    });
+    eventSource.addEventListener('scan_complete', function(e) {
+      addDebugLog('INFO', 'SSE scan_complete received');
+      try {
+        var d = JSON.parse(e.data);
+        scanData = d;
+        renderAll();
+      } catch(err) {
+        addDebugLog('WARN', 'Could not parse scan_complete data, fetching latest...');
+        loadLatest();
+      }
+      var btn = $('scanBtn');
+      btn.disabled = false;
+      btn.textContent = 'SCAN';
+    });
+    eventSource.onerror = function() {
+      addDebugLog('WARN', 'SSE connection error, will retry...');
+    };
+    addDebugLog('INFO', 'SSE connected to /api/events');
+  } catch(e) {
+    addDebugLog('ERROR', 'SSE connection failed: ' + e.message);
+  }
+}
+
+// --- Logging ---
+function addScanLog(msg) {
+  var c = $('scanLogContainer');
+  if (c.children.length === 1 && c.children[0].style && c.children[0].style.color) c.innerHTML = '';
+  var div = document.createElement('div');
+  div.className = 'log-entry';
+  var isSuccess = msg.toLowerCase().indexOf('complete') >= 0 || msg.toLowerCase().indexOf('found') >= 0;
+  div.innerHTML = '<span class="log-ts">' + nowTs() + '</span> <span class="' + (isSuccess ? 'log-success' : 'log-info') + '">' + escHtml(msg) + '</span>';
+  c.appendChild(div);
+  c.scrollTop = c.scrollHeight;
+}
+
+function addDebugLog(level, msg) {
+  var c = $('debugLogContainer');
+  var div = document.createElement('div');
+  div.className = 'log-entry';
+  div.setAttribute('data-level', level);
+  var cls = level === 'ERROR' ? 'log-error' : level === 'WARN' ? 'log-warn' : level === 'DEBUG' ? 'log-debug' : 'log-info';
+  div.innerHTML = '<span class="log-ts">' + nowTs() + '</span> <span class="' + cls + '">[' + level + ']</span> <span class="' + cls + '">' + escHtml(msg) + '</span>';
+  if (!debugFilters[level]) div.style.display = 'none';
+  c.appendChild(div);
+  c.scrollTop = c.scrollHeight;
+}
+
+function toggleDebugFilter(level) {
+  debugFilters[level] = !debugFilters[level];
+  var btns = document.querySelectorAll('.debug-header-controls button[data-level="' + level + '"]');
+  btns.forEach(function(b) { b.classList.toggle('active', debugFilters[level]); });
+  document.querySelectorAll('#debugLogContainer .log-entry').forEach(function(el) {
+    if (el.getAttribute('data-level') === level) el.style.display = debugFilters[level] ? '' : 'none';
+  });
+}
+
+function clearDebugLog() {
+  $('debugLogContainer').innerHTML = '';
+}
+
+function toggleDebugCollapse() {
+  debugCollapsed = !debugCollapsed;
+  $('debugPanel').classList.toggle('debug-collapsed', debugCollapsed);
+  $('debugCollapseBtn').textContent = debugCollapsed ? 'SHOW' : 'HIDE';
+}
+
+// --- Render All ---
+function renderAll() {
+  if (!scanData) return;
+  addDebugLog('DEBUG', 'Rendering all panels...');
+  updateMarketStatus();
+  renderPortfolioValue();
+  renderAlerts();
+  renderHoldings();
+  renderMarketInternals();
+  renderWatchlist();
+  renderHeatmap();
+  renderSellSignals();
+  if (selectedTicker) {
+    renderScannerGrades();
+    renderPositionDetail();
+  } else if (scanData.portfolio && scanData.portfolio.length > 0) {
+    selectTicker(scanData.portfolio[0].ticker);
+  }
+  updateLastScan();
+}
+
+function updateMarketStatus() {
+  if (!scanData) return;
+  var s = scanData.market_status || 'unknown';
+  var labels = { open: 'MKT OPEN', closed: 'MKT CLOSED', pre: 'PRE-MKT', post: 'POST-MKT' };
+  $('mktStatus').textContent = labels[s] || ('MKT ' + s.toUpperCase());
+}
+
+function updateLastScan() {
+  if (!scanData || !scanData.timestamp) return;
+  var d = new Date(scanData.timestamp);
+  var h = String(d.getHours()).padStart(2, '0');
+  var m = String(d.getMinutes()).padStart(2, '0');
+  $('lastScan').textContent = '\u25CF LAST SCAN ' + h + ':' + m + ' ET';
+}
+
+// --- Panel 1: Portfolio Value ---
+function renderPortfolioValue() {
+  var port = scanData.portfolio || [];
+  var totalValue = 0, totalCost = 0, totalUnrealized = 0, dayPnl = 0, wins = 0, losses = 0;
+  port.forEach(function(p) {
+    var val = p.position_value || 0;
+    var cost = (p.avg_cost || 0) * (p.shares || 0);
+    totalValue += val;
+    totalCost += cost;
+    totalUnrealized += (p.unrealized_pnl || 0);
+    var dayChg = (p.price_action && p.price_action.change_1d_pct != null) ? p.price_action.change_1d_pct : 0;
+    dayPnl += dayChg * val / 100;
+    if ((p.unrealized_pnl || 0) > 0) wins++; else if ((p.unrealized_pnl || 0) < 0) losses++;
+  });
+  var unrealizedPct = totalCost > 0 ? (totalUnrealized / totalCost) * 100 : 0;
+  var dayPnlPct = totalValue > 0 ? (dayPnl / totalValue) * 100 : 0;
+
+  $('panelPortfolioValue').innerHTML =
+    '<div class="big-number ' + pnlClass(totalUnrealized) + '">' + fmtDollar(totalValue) + '</div>' +
+    '<div class="big-label">TOTAL EQUITY</div>' +
+    '<div style="margin-top:10px;">' +
+      '<div class="data-row"><span class="data-label">Day P&amp;L</span><span class="data-value ' + pnlClass(dayPnl) + '">' + fmtDollar(dayPnl) + ' (' + fmtPct(dayPnlPct) + ')</span></div>' +
+      '<div class="data-row"><span class="data-label">Unrealized P&amp;L</span><span class="data-value ' + pnlClass(totalUnrealized) + '">' + fmtDollar(totalUnrealized) + ' (' + fmtPct(unrealizedPct) + ')</span></div>' +
+      '<div class="data-row"><span class="data-label">Total Cost Basis</span><span class="data-value neutral">' + fmtDollar(totalCost) + '</span></div>' +
+      '<div class="data-row"><span class="data-label">Positions</span><span class="data-value neutral">' + port.length + '</span></div>' +
+      '<div class="data-row"><span class="data-label">Win / Loss</span><span class="data-value"><span class="positive">' + wins + '</span> / <span class="negative">' + losses + '</span></span></div>' +
+    '</div>';
+}
+
+// --- Panel 2: Alerts ---
+function renderAlerts() {
+  var alerts = scanData.alerts || [];
+  $('alertCount').textContent = alerts.length;
+  if (alerts.length === 0) {
+    $('panelAlerts').innerHTML = '<div style="color:var(--text-muted);font-size:11px;">No alerts</div>';
+    return;
+  }
+  $('panelAlerts').innerHTML = alerts.map(function(a) {
+    return '<div class="signal-card">' +
+      '<span class="signal-grade ' + (a.severity === 'critical' ? 'negative' : 'amber') + '">' + (a.severity === 'critical' ? '!' : '\u26A0') + '</span>' +
+      '<span class="signal-ticker">' + escHtml(a.ticker) + '</span>' +
+      '<div class="signal-type">' + escHtml(a.message) + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// --- Panel 3: Holdings ---
+function renderHoldings() {
+  var port = scanData.portfolio || [];
+  if (port.length === 0) {
+    $('holdingsBody').innerHTML = '<tr><td colspan="8" style="color:var(--text-muted);text-align:center;padding:16px;">No positions</td></tr>';
+    return;
+  }
+  $('holdingsBody').innerHTML = port.map(function(p) {
+    var pnlPct = p.unrealized_pnl_pct;
+    var rsi = p.momentum && p.momentum.rsi_14;
+    var ext50 = p.moving_averages && p.moving_averages.extension_from_50ma_pct;
+    var rvol = p.volume && p.volume.rvol;
+    var tag = p.tag;
+    var signals = p.active_signals || [];
+    var signalLabel = '\u2014';
+    var signalClass = 'neutral';
+    if (signals.length > 0) {
+      var s = signals[0];
+      var sigLabels = {
+        'volume_climax': 'V.CLIMAX', 'bearish_divergence': 'B.DIV',
+        'below_ma50': 'BROKEN', 'rsi_oversold': 'RSI LOW',
+        'extended_below_ma50': 'EXT LOW'
+      };
+      signalLabel = sigLabels[s.type] || s.type.toUpperCase().slice(0, 8);
+      signalClass = s.severity === 'critical' ? 'negative' : s.severity === 'warning' ? 'amber' : 'neutral';
+    }
+    var tagColor = tag === 'hold' ? 'green' : tag === 'sell' ? 'red' : 'amber';
+    var tagHtml = tag ? '<span class="tag-sm" style="background:var(--' + tagColor + '-dim);color:var(--' + tagColor + ');">' + tag.toUpperCase() + '</span>' : '';
+    var isSelected = selectedTicker === p.ticker;
+    var rsiClass = rsi != null ? (rsi < 30 ? 'negative' : rsi > 70 ? 'amber' : 'neutral') : 'neutral';
+    var extClass = ext50 != null ? (ext50 < -10 ? 'negative' : ext50 > 10 ? 'positive' : 'neutral') : 'neutral';
+    var rvolClass = rvol != null ? (rvol > 2 ? 'negative' : rvol > 1.5 ? 'amber' : 'neutral') : 'neutral';
+
+    return '<tr class="' + (isSelected ? 'selected-row' : '') + '" onclick="selectTicker(\'' + escHtml(p.ticker) + '\')">' +
+      '<td class="ticker-cell">' + escHtml(p.ticker) + ' ' + tagHtml + '</td>' +
+      '<td>' + fmtDollar(p.current_price) + '</td>' +
+      '<td class="' + pnlClass(pnlPct) + '">' + fmtPct(pnlPct) + '</td>' +
+      '<td class="' + rsiClass + '">' + fmt(rsi, 1) + '</td>' +
+      '<td class="' + extClass + '">' + fmtPct(ext50, 1) + '</td>' +
+      '<td class="' + rvolClass + '">' + (rvol != null ? fmt(rvol, 1) + 'x' : '\u2014') + '</td>' +
+      '<td class="' + signalClass + '">' + signalLabel + '</td>' +
+      '<td><button class="btn-delete" onclick="event.stopPropagation();deletePosition(\'' + escHtml(p.ticker) + '\')" title="Delete">&times;</button></td>' +
+    '</tr>';
+  }).join('');
+}
+
+// --- Panel 4: Scanner Grades ---
+function renderScannerGrades() {
+  if (!selectedTicker || !scanData) return;
+  var p = (scanData.portfolio || []).find(function(x) { return x.ticker === selectedTicker; });
+  if (!p) {
+    $('scannerGradesHeader').innerHTML = 'Scanner Grades';
+    $('panelScannerGrades').innerHTML = '<div style="color:var(--text-muted);font-size:11px;">Select a ticker</div>';
+    return;
+  }
+  $('scannerGradesHeader').innerHTML = 'Scanner Grades \u2014 ' + escHtml(p.ticker);
+  var grades = p.scanner_grades || {};
+  var minervini = grades.minervini || {};
+  var criteria = minervini.criteria || [];
+  var score = p.confluence_score != null ? p.confluence_score : '\u2014';
+  var tier = p.confluence_tier || '\u2014';
+
+  var criteriaHtml = '';
+  if (criteria.length > 0) {
+    criteriaHtml = criteria.map(function(c) {
+      var met = c.met || c.passes;
+      return '<div class="data-row">' +
+        '<span class="data-label">' + escHtml(c.name || c.label || c.description || 'Criterion') + '</span>' +
+        '<span class="data-value ' + (met ? 'grade-a' : '') + '"' + (!met ? ' style="color:var(--text-muted)"' : '') + '>' + (met ? 'PASS' : 'FAIL') + '</span>' +
+      '</div>';
+    }).join('');
+  } else {
+    criteriaHtml =
+      '<div class="data-row"><span class="data-label">Minervini Trend</span>' +
+      '<span class="data-value ' + (minervini.passes ? 'grade-a' : '') + '"' + (!minervini.passes ? ' style="color:var(--text-muted)"' : '') + '>' + (minervini.passes ? 'PASS' : 'FAIL') + '</span></div>' +
+      '<div class="data-row"><span class="data-label">Criteria Met</span>' +
+      '<span class="data-value neutral">' + (minervini.criteria_met != null ? minervini.criteria_met : '\u2014') + '</span></div>';
+  }
+
+  var scoreNum = typeof score === 'number' ? score : 0;
+  var meterColor = scoreNum >= 70 ? 'var(--green)' : scoreNum >= 40 ? 'var(--amber)' : 'var(--red)';
+  var tierClass = tier === 'A' ? 'positive' : tier === 'B' ? 'amber' : 'negative';
+
+  $('panelScannerGrades').innerHTML = criteriaHtml +
+    '<div style="margin-top:8px;">' +
+      '<div class="big-label">CONFLUENCE SCORE</div>' +
+      '<div style="display:flex;align-items:baseline;gap:8px;margin-top:2px;">' +
+        '<span class="big-number ' + tierClass + '" style="font-size:22px;">' + score + '</span>' +
+        '<span style="color:var(--text-secondary);font-size:10px;">/ 100 \u2014 TIER ' + escHtml(String(tier)) + '</span>' +
+      '</div>' +
+      '<div class="meter"><div class="meter-fill" style="width:' + Math.min(scoreNum, 100) + '%;background:' + meterColor + ';"></div></div>' +
+    '</div>';
+}
+
+// --- Panel 5: Market Internals ---
+function renderMarketInternals() {
+  var mi = scanData.market_internals;
+  if (!mi) {
+    $('panelMarketInternals').innerHTML = '<div style="color:var(--text-muted);font-size:11px;">No data</div>';
+    return;
+  }
+  var rows = [];
+  if (mi.sp500) rows.push({ label: 'S&P 500 (SPY)', price: mi.sp500.price, chg: mi.sp500.change_pct });
+  if (mi.nasdaq) rows.push({ label: 'NASDAQ (QQQ)', price: mi.nasdaq.price, chg: mi.nasdaq.change_pct });
+  if (mi.vix) rows.push({ label: 'VIX (UVXY)', price: mi.vix.price, chg: mi.vix.change_pct });
+
+  $('panelMarketInternals').innerHTML = rows.map(function(r) {
+    var cls = r.label.indexOf('VIX') >= 0 ? (r.price > 25 ? 'amber' : 'neutral') : pnlClass(r.chg);
+    var val = r.price != null ? fmt(r.price, 2) : '\u2014';
+    var chg = r.chg != null ? ' (' + fmtPct(r.chg) + ')' : '';
+    return '<div class="data-row">' +
+      '<span class="data-label">' + escHtml(r.label) + '</span>' +
+      '<span class="data-value ' + cls + '">' + val + chg + '</span>' +
+    '</div>';
+  }).join('');
+}
+
+// --- Panel 6: Watchlist ---
+function renderWatchlist() {
+  var wl = scanData.watchlist || [];
+  if (wl.length === 0) {
+    $('panelWatchlist').innerHTML = '<div style="color:var(--text-muted);font-size:11px;">No data</div>';
+    return;
+  }
+  $('panelWatchlist').innerHTML = wl.map(function(w) {
+    var reason = (w.criteria_matched || []).join(', ') || w.reason || '';
+    return '<div class="watchlist-item">' +
+      '<div><span class="watchlist-ticker">' + escHtml(w.ticker) + '</span>' +
+      '<span class="data-value" style="margin-left:8px;">' + fmtDollar(w.current_price) + '</span></div>' +
+      '<span class="watchlist-reason">' + escHtml(reason) + '</span>' +
+    '</div>';
+  }).join('');
+}
+
+// --- Panel 7: Position Detail ---
+function renderPositionDetail() {
+  if (!selectedTicker || !scanData) return;
+  var p = (scanData.portfolio || []).find(function(x) { return x.ticker === selectedTicker; });
+  if (!p) {
+    $('posDetailHeader').innerHTML = 'Position Detail';
+    $('panelPositionDetail').innerHTML = '<div style="color:var(--text-muted);font-size:11px;">Select a ticker</div>';
+    return;
+  }
+  var tag = p.tag;
+  var tagHtml = tag ? ' <span class="tag tag-hold">' + tag.toUpperCase() + '</span>' : '';
+  $('posDetailHeader').innerHTML = 'Position Detail \u2014 ' + escHtml(p.ticker) + tagHtml;
+
+  var rsi = p.momentum ? p.momentum.rsi_14 : null;
+  var macd = p.momentum ? p.momentum.macd_line : null;
+  var bbPos = p.volatility ? p.volatility.bb_position_pct : null;
+  var rvol = p.volume ? p.volume.rvol : null;
+  var range52 = p.range_52w ? p.range_52w.pct_from_52w_high : null;
+  var unrealizedPnl = p.unrealized_pnl;
+  var signals = (p.active_signals || []).map(function(s) { return escHtml(s.message); }).join('<br>');
+  var summaryHtml = signals || 'No active signals.';
+
+  $('panelPositionDetail').innerHTML =
+    '<div class="scanner-grid">' +
+      '<div class="scanner-cell"><div class="scanner-cell-label">Price</div><div class="scanner-cell-value neutral">' + fmtDollar(p.current_price) + '</div></div>' +
+      '<div class="scanner-cell"><div class="scanner-cell-label">Cost Basis</div><div class="scanner-cell-value neutral">' + fmtDollar(p.avg_cost) + '</div></div>' +
+      '<div class="scanner-cell"><div class="scanner-cell-label">P&amp;L</div><div class="scanner-cell-value ' + pnlClass(unrealizedPnl) + '">' + fmtDollar(unrealizedPnl) + '</div></div>' +
+      '<div class="scanner-cell"><div class="scanner-cell-label">52W Range</div><div class="scanner-cell-value neutral">' + (range52 != null ? fmtPct(range52) : '\u2014') + '</div></div>' +
+      '<div class="scanner-cell"><div class="scanner-cell-label">RSI (14)</div><div class="scanner-cell-value ' + (rsi != null ? (rsi < 30 ? 'negative' : rsi > 70 ? 'amber' : 'neutral') : 'neutral') + '">' + fmt(rsi, 1) + '</div></div>' +
+      '<div class="scanner-cell"><div class="scanner-cell-label">MACD</div><div class="scanner-cell-value ' + pnlClass(macd) + '">' + fmt(macd) + '</div></div>' +
+      '<div class="scanner-cell"><div class="scanner-cell-label">BB Position</div><div class="scanner-cell-value neutral">' + (bbPos != null ? fmt(bbPos, 1) + '%' : '\u2014') + '</div></div>' +
+      '<div class="scanner-cell"><div class="scanner-cell-label">RVOL</div><div class="scanner-cell-value neutral">' + (rvol != null ? fmt(rvol, 1) + 'x' : '\u2014') + '</div></div>' +
+    '</div>' +
+    '<div style="margin-top:8px;">' +
+      '<div class="scanner-cell-label">SIGNALS</div>' +
+      '<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;line-height:1.5;">' + summaryHtml + '</div>' +
+    '</div>' +
+    '<div class="chart-container" id="tvChart"></div>';
+
+  loadChart(selectedTicker);
+}
+
+// --- Panel 8: Heatmap ---
+function renderHeatmap() {
+  var port = scanData.portfolio || [];
+  if (port.length === 0) {
+    $('panelHeatmap').innerHTML = '<div style="color:var(--text-muted);font-size:11px;">No data</div>';
+    return;
+  }
+  var sorted = port.slice().sort(function(a, b) { return (b.unrealized_pnl_pct || 0) - (a.unrealized_pnl_pct || 0); });
+
+  $('panelHeatmap').innerHTML = '<div class="heatmap-grid">' + sorted.map(function(p) {
+    var pnl = p.unrealized_pnl_pct || 0;
+    var bg, color;
+    if (pnl > 10) { bg = 'var(--green-dim)'; color = 'var(--green)'; }
+    else if (pnl > 0) { bg = 'rgba(78,197,108,0.1)'; color = 'var(--green)'; }
+    else if (pnl > -5) { bg = 'rgba(224,82,82,0.08)'; color = 'var(--red)'; }
+    else if (pnl > -20) { bg = 'var(--red-dim)'; color = 'var(--red)'; }
+    else if (pnl > -40) { bg = '#4a1515'; color = 'var(--red)'; }
+    else { bg = '#5a1010'; color = 'var(--red)'; }
+    return '<div class="heatmap-tile" style="background:' + bg + ';">' +
+      '<div class="heatmap-ticker" style="color:' + color + ';">' + escHtml(p.ticker) + '</div>' +
+      '<div class="heatmap-pnl" style="color:' + color + ';">' + fmtPct(pnl, 1) + '</div>' +
+    '</div>';
+  }).join('') + '</div>';
+}
+
+// --- Panel 9: Sell Signal Matrix ---
+function renderSellSignals() {
+  var port = scanData.portfolio || [];
+  if (port.length === 0) {
+    $('panelSellSignals').innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:10px;">No data</div>';
+    return;
+  }
+  var signalTypes = ['bearish_divergence', 'volume_climax', 'below_ma50', 'rsi_oversold', 'extended_below_ma50'];
+  var headers = ['B.Div', 'V.Clmx', '&lt; MA50', 'RSI&lt;30', 'Ext&gt;20%'];
+
+  var rows = port.map(function(p) {
+    var activeSignals = (p.active_signals || []).map(function(s) { return s.type; });
+    var momentum = p.momentum || {};
+    var ma = p.moving_averages || {};
+    var vol = p.volume || {};
+    var checks = {
+      bearish_divergence: activeSignals.indexOf('bearish_divergence') >= 0 || momentum.bearish_divergence,
+      volume_climax: activeSignals.indexOf('volume_climax') >= 0 || vol.volume_climax,
+      below_ma50: activeSignals.indexOf('below_ma50') >= 0 || (ma.price_above_50ma === false),
+      rsi_oversold: activeSignals.indexOf('rsi_oversold') >= 0 || (momentum.rsi_14 != null && momentum.rsi_14 < 30),
+      extended_below_ma50: activeSignals.indexOf('extended_below_ma50') >= 0 || (ma.extension_from_50ma_pct != null && ma.extension_from_50ma_pct < -20)
+    };
+    return '<tr>' +
+      '<td class="ticker-cell" style="font-size:10px;">' + escHtml(p.ticker) + '</td>' +
+      signalTypes.map(function(st) { return '<td class="' + (checks[st] ? 'negative' : '') + '">' + (checks[st] ? '\u25A0' : '\u00B7') + '</td>'; }).join('') +
+    '</tr>';
+  }).join('');
+
+  $('panelSellSignals').innerHTML =
+    '<table class="port-table" style="font-size:10px;">' +
+      '<thead><tr><th></th>' + headers.map(function(h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>';
+}
+
+// --- Ticker Selection ---
+function selectTicker(ticker) {
+  selectedTicker = ticker;
+  addDebugLog('DEBUG', 'Selected ticker: ' + ticker);
+  renderHoldings();
+  renderScannerGrades();
+  renderPositionDetail();
+}
+
+// --- TradingView Chart ---
+function loadChart(ticker) {
+  var container = $('tvChart');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (chart) {
+    try { chart.remove(); } catch(e) {}
+    chart = null;
+    candleSeries = null;
+  }
+
+  var isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+
+  try {
+    chart = LightweightCharts.createChart(container, {
+      width: container.clientWidth,
+      height: 180,
+      layout: {
+        background: { type: 'solid', color: isDark ? '#0f0f0f' : '#faf8f5' },
+        textColor: isDark ? '#6b6b6b' : '#707070',
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: isDark ? '#1a1a1a' : '#e0dcd5' },
+        horzLines: { color: isDark ? '#1a1a1a' : '#e0dcd5' },
+      },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      rightPriceScale: { borderColor: isDark ? '#2a2a2a' : '#c0bab0' },
+      timeScale: { borderColor: isDark ? '#2a2a2a' : '#c0bab0', timeVisible: false },
+    });
+
+    candleSeries = chart.addCandlestickSeries({
+      upColor: isDark ? '#4ec56c' : '#2d8a4e',
+      downColor: isDark ? '#e05252' : '#c43030',
+      borderUpColor: isDark ? '#4ec56c' : '#2d8a4e',
+      borderDownColor: isDark ? '#e05252' : '#c43030',
+      wickUpColor: isDark ? '#4ec56c' : '#2d8a4e',
+      wickDownColor: isDark ? '#e05252' : '#c43030',
+    });
+
+    apiGet('/history/' + encodeURIComponent(ticker)).then(function(data) {
+      if (data && Array.isArray(data) && data.length > 0) {
+        candleSeries.setData(data);
+        chart.timeScale().fitContent();
+      } else {
+        addDebugLog('DEBUG', 'No chart data for ' + ticker);
+      }
+    });
+
+    var ro = new ResizeObserver(function() {
+      if (chart && container.clientWidth > 0) {
+        chart.applyOptions({ width: container.clientWidth });
+      }
+    });
+    ro.observe(container);
+  } catch(e) {
+    addDebugLog('WARN', 'Chart render failed: ' + e.message);
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:10px;padding:8px;">Chart unavailable</div>';
+  }
+}
+
+// --- Portfolio Management ---
+function openAddModal() {
+  $('addModal').classList.add('open');
+  $('modalTicker').value = '';
+  $('modalShares').value = '';
+  $('modalCost').value = '';
+  $('modalTag').value = '';
+  setTimeout(function() { $('modalTicker').focus(); }, 50);
+}
+
+function closeAddModal() {
+  $('addModal').classList.remove('open');
+}
+
+function submitAddPosition() {
+  var ticker = $('modalTicker').value.trim().toUpperCase();
+  var shares = parseFloat($('modalShares').value);
+  var avg_cost = parseFloat($('modalCost').value);
+  var tag = $('modalTag').value || null;
+
+  if (!ticker || isNaN(shares) || isNaN(avg_cost)) {
+    addDebugLog('WARN', 'Invalid form input for add position');
+    return;
+  }
+
+  addDebugLog('INFO', 'Adding position: ' + ticker + ' x' + shares + ' @ $' + avg_cost);
+  apiPost('/portfolio', { ticker: ticker, shares: shares, avg_cost: avg_cost, tag: tag }).then(function(result) {
+    if (result) {
+      closeAddModal();
+      addScanLog('Added ' + ticker + ' to portfolio.');
+      triggerScan();
+    }
+  });
+}
+
+function deletePosition(ticker) {
+  if (!confirm('Delete ' + ticker + ' from portfolio?')) return;
+  addDebugLog('INFO', 'Deleting position: ' + ticker);
+  apiDelete('/portfolio/' + encodeURIComponent(ticker)).then(function(ok) {
+    if (ok) {
+      addScanLog('Removed ' + ticker + ' from portfolio.');
+      if (selectedTicker === ticker) selectedTicker = null;
+      triggerScan();
+    }
+  });
+}
+
+// --- Drag & Drop ---
+(function() {
+  var dragEl = null;
+  var placeholder = null;
+  var offsetX = 0, offsetY = 0;
+  var STORAGE_KEY = 'openscan-panel-order';
+
+  window.addEventListener('DOMContentLoaded', restoreOrder);
+
+  function getMain() { return document.querySelector('.main'); }
+  function getPanels() { return Array.from(getMain().querySelectorAll('.panel')); }
+
+  window.toggleLock = function() {
+    locked = !locked;
+    var btn = $('lockBtn');
+    btn.textContent = locked ? 'LOCKED' : 'UNLOCKED';
+    btn.classList.toggle('locked', locked);
+    getPanels().forEach(function(p) {
+      p.style.cursor = locked ? 'default' : 'grab';
+      var hdr = p.querySelector('.panel-header');
+      if (hdr) hdr.style.cursor = locked ? 'default' : 'grab';
+    });
+  };
+
+  function saveOrder() {
+    var ids = getPanels().map(function(p) { return p.getAttribute('data-panel-id'); });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+  }
+
+  function restoreOrder() {
+    var saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+    try {
+      var order = JSON.parse(saved);
+      var main = getMain();
+      var panels = getPanels();
+      var panelMap = {};
+      panels.forEach(function(p) { panelMap[p.getAttribute('data-panel-id')] = p; });
+      order.forEach(function(id) {
+        if (panelMap[id]) main.appendChild(panelMap[id]);
+      });
+    } catch(e) {}
+  }
+
+  document.addEventListener('mousedown', startDrag);
+  document.addEventListener('touchstart', startDrag, { passive: false });
+
+  function startDrag(e) {
+    if (locked) return;
+    var header = e.target.closest('.panel-header');
+    if (!header) return;
+    if (e.target.closest('button')) return;
+    var panel = header.closest('.panel');
+    if (!panel) return;
+    e.preventDefault();
+
+    var rect = panel.getBoundingClientRect();
+    var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    offsetX = clientX - rect.left;
+    offsetY = clientY - rect.top;
+    dragEl = panel;
+
+    placeholder = document.createElement('div');
+    placeholder.className = 'drop-placeholder';
+    placeholder.style.width = rect.width + 'px';
+    placeholder.style.height = rect.height + 'px';
+    if (panel.classList.contains('panel-wide')) {
+      placeholder.style.gridColumn = 'span 2';
+    }
+    panel.parentNode.insertBefore(placeholder, panel);
+
+    panel.classList.add('dragging');
+    panel.style.width = rect.width + 'px';
+    panel.style.height = rect.height + 'px';
+    panel.style.left = rect.left + 'px';
+    panel.style.top = rect.top + 'px';
+
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('touchmove', onDrag, { passive: false });
+    document.addEventListener('mouseup', endDrag);
+    document.addEventListener('touchend', endDrag);
+  }
+
+  function onDrag(e) {
+    if (!dragEl) return;
+    e.preventDefault();
+    var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    dragEl.style.left = (clientX - offsetX) + 'px';
+    dragEl.style.top = (clientY - offsetY) + 'px';
+
+    var main = getMain();
+    var panels = Array.from(main.querySelectorAll('.panel:not(.dragging)'));
+    var closest = null;
+    var closestDist = Infinity;
+
+    panels.forEach(function(p) {
+      var r = p.getBoundingClientRect();
+      var cx = r.left + r.width / 2;
+      var cy = r.top + r.height / 2;
+      var dist = Math.hypot(clientX - cx, clientY - cy);
+      if (dist < closestDist) { closestDist = dist; closest = p; }
+    });
+
+    panels.forEach(function(p) { p.classList.remove('drag-over'); });
+
+    if (closest && closestDist < 200) {
+      closest.classList.add('drag-over');
+      var r = closest.getBoundingClientRect();
+      var midY = r.top + r.height / 2;
+      if (clientY < midY) {
+        main.insertBefore(placeholder, closest);
+      } else {
+        main.insertBefore(placeholder, closest.nextSibling);
+      }
+    }
+  }
+
+  function endDrag() {
+    if (!dragEl) return;
+    getPanels().forEach(function(p) { p.classList.remove('drag-over'); });
+    dragEl.classList.remove('dragging');
+    dragEl.style.width = '';
+    dragEl.style.height = '';
+    dragEl.style.left = '';
+    dragEl.style.top = '';
+    dragEl.style.position = '';
+
+    if (placeholder && placeholder.parentNode) {
+      placeholder.parentNode.insertBefore(dragEl, placeholder);
+      placeholder.remove();
+    }
+
+    dragEl = null;
+    placeholder = null;
+
+    document.removeEventListener('mousemove', onDrag);
+    document.removeEventListener('touchmove', onDrag);
+    document.removeEventListener('mouseup', endDrag);
+    document.removeEventListener('touchend', endDrag);
+
+    saveOrder();
+  }
+})();
+
+// --- Close modal on overlay click ---
+$('addModal').addEventListener('click', function(e) {
+  if (e.target === this) closeAddModal();
+});
+
+// --- Escape key to close modal ---
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeAddModal();
+});
+
+// --- Init ---
+(function init() {
+  initTheme();
+  updateDateDisplay();
+  // Start debug collapsed
+  $('debugPanel').classList.add('debug-collapsed');
+  $('footerHost').textContent = location.host;
+  connectSSE();
+  loadLatest();
+})();
+</script>
+</body>
+</html>
