@@ -1,0 +1,617 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// © anyhowtrade
+
+//@version=6
+indicator("MTF Bias + Options Signals", overlay=true, max_labels_count=100)
+
+// ==================== INPUTS ====================
+// Bias Calculation Method
+biasMethod = input.string("Dual EMA", "Bias Method",
+     options=["Dual EMA", "Single EMA", "Single SMA"], group="Settings",
+     tooltip="Dual EMA: Fast EMA vs Slow EMA + Price position (most accurate)")
+fastLength = input.int(9, "Fast EMA Length", minval=5, maxval=50, group="Settings")
+slowLength = input.int(21, "Slow EMA Length", minval=10, maxval=200, group="Settings")
+singleLength = input.int(20, "Single MA Length", minval=5, maxval=200, group="Settings")
+showOverallBias = input.bool(true, "Show Overall Bias", group="Settings")
+
+// Accuracy Settings
+useADXFilter = input.bool(true, "Use ADX Trend Filter", group="Accuracy",
+     tooltip="Only confirm bias when ADX shows trending market (reduces whipsaws)")
+adxThreshold = input.int(20, "ADX Threshold", minval=10, maxval=40, group="Accuracy",
+     tooltip="Minimum ADX value to confirm trend (20-25 recommended)")
+adxLength = input.int(14, "ADX Length", minval=7, maxval=30, group="Accuracy")
+confirmationBars = input.int(3, "Confirmation Bars", minval=1, maxval=5, group="Accuracy",
+     tooltip="Bias must persist for this many bars before confirming")
+useWeightedScoring = input.bool(true, "Use Weighted TF Scoring", group="Accuracy",
+     tooltip="Higher timeframes (Daily/4H) count more than lower timeframes")
+
+// Market Structure Settings
+showCHoCH = input.bool(true, "Show CHoCH (Trend Reversal)", group="Market Structure")
+showBOS = input.bool(true, "Show BOS (Trend Continuation)", group="Market Structure")
+swingLength = input.int(5, "Swing Detection Length", minval=3, maxval=20, group="Market Structure",
+     tooltip="Number of bars to look left/right for swing highs/lows")
+requireMTFAlignment = input.bool(true, "Require MTF Alignment", group="Market Structure",
+     tooltip="Only show CHoCH/BOS when aligned with MTF bias")
+minAlignmentForSignal = input.int(4, "Min Alignment for Signal", minval=3, maxval=7, group="Market Structure")
+
+// Table Settings
+tablePosition = input.string("top_right", "Table Position",
+     options=["top_left", "top_center", "top_right", "middle_left", "middle_center",
+              "middle_right", "bottom_left", "bottom_center", "bottom_right"], group="Display")
+tableSize = input.string("small", "Table Size", options=["tiny", "small", "normal", "large"], group="Display")
+
+// VWAP Settings (subtle display)
+showVWAP = input.bool(true, "Show VWAP Line", group="VWAP")
+vwapBandMult = input.float(1.5, "Band StdDev", minval=0.5, maxval=3.0, step=0.1, group="VWAP")
+
+// Options Signal Settings
+showOptionsSignals = input.bool(true, "Show CALL/PUT Signals", group="Options")
+minAlignmentForOptions = input.int(5, "Min TF Alignment", minval=3, maxval=7, group="Options")
+
+// Target/Exit Settings
+showTargets = input.bool(true, "Show Targets/Stops", group="Targets")
+showTargetLabels = input.bool(true, "Show Target Labels", group="Targets")
+tpAtrMult = input.float(1.5, "ATR TP Multiplier", minval=0.5, maxval=4.0, step=0.1, group="Targets")
+slAtrMult = input.float(1.0, "ATR Stop Multiplier", minval=0.3, maxval=3.0, step=0.1, group="Targets")
+
+// ==================== ADX CALCULATION FUNCTION ====================
+// Calculate ADX for trend strength filtering
+calcADX(len) =>
+    up = ta.change(high)
+    down = -ta.change(low)
+    plusDM = na(up) ? na : (up > down and up > 0 ? up : 0)
+    minusDM = na(down) ? na : (down > up and down > 0 ? down : 0)
+    trueRange = ta.rma(ta.tr, len)
+    plusDI = 100 * ta.rma(plusDM, len) / trueRange
+    minusDI = 100 * ta.rma(minusDM, len) / trueRange
+    dx = 100 * math.abs(plusDI - minusDI) / (plusDI + minusDI)
+    ta.rma(dx, len)
+
+// ==================== BIAS CALCULATION FUNCTION ====================
+getBiasWithADX(tf) =>
+    // Request all data in a single call for efficiency
+    [tfClose, tfFastEMA, tfSlowEMA, tfSingleMA, tfADX] = request.security(
+         syminfo.tickerid, tf,
+         [close, ta.ema(close, fastLength), ta.ema(close, slowLength),
+          ta.sma(close, singleLength), calcADX(adxLength)],
+         barmerge.gaps_off, barmerge.lookahead_off)
+
+    rawBias = 0
+
+    if biasMethod == "Dual EMA"
+        // Industry standard: Bullish when Fast EMA > Slow EMA AND price > Fast EMA
+        // Bearish when Fast EMA < Slow EMA AND price < Fast EMA
+        if tfFastEMA > tfSlowEMA and tfClose > tfFastEMA
+            rawBias := 1  // Bullish
+        else if tfFastEMA < tfSlowEMA and tfClose < tfFastEMA
+            rawBias := -1  // Bearish
+        else
+            rawBias := 0  // Neutral (transition/choppy)
+    else if biasMethod == "Single EMA"
+        // Simple: price above EMA = bullish
+        ema = request.security(syminfo.tickerid, tf, ta.ema(close, singleLength),
+             barmerge.gaps_off, barmerge.lookahead_off)
+        rawBias := tfClose > ema ? 1 : tfClose < ema ? -1 : 0
+    else if biasMethod == "Single SMA"
+        // Simple: price above SMA = bullish
+        rawBias := tfClose > tfSingleMA ? 1 : tfClose < tfSingleMA ? -1 : 0
+
+    // Apply ADX filter: only confirm bias if trend is strong enough
+    // If ADX is below threshold, return neutral (0) to avoid whipsaws in ranging markets
+    finalBias = rawBias
+    if useADXFilter and not na(tfADX) and tfADX < adxThreshold
+        finalBias := 0  // Weak trend = neutral bias
+
+    [finalBias, tfADX]
+
+// ==================== GET BIAS FOR EACH TIMEFRAME ====================
+[rawBias1m, adx1m] = getBiasWithADX("1")
+[rawBias5m, adx5m] = getBiasWithADX("5")
+[rawBias15m, adx15m] = getBiasWithADX("15")
+[rawBias1h, adx1h] = getBiasWithADX("60")
+[rawBias4h, adx4h] = getBiasWithADX("240")
+[rawBiasDaily, adxDaily] = getBiasWithADX("D")
+[rawBiasWeekly, adxWeekly] = getBiasWithADX("W")
+
+// ==================== CONFIRMATION BARS LOGIC ====================
+// Track how many consecutive bars each TF has maintained the same bias
+var int confirm1m = 0
+var int confirm5m = 0
+var int confirm15m = 0
+var int confirm1h = 0
+var int confirm4h = 0
+var int confirmDaily = 0
+var int confirmWeekly = 0
+
+var int lastBias1m = 0
+var int lastBias5m = 0
+var int lastBias15m = 0
+var int lastBias1h = 0
+var int lastBias4h = 0
+var int lastBiasDaily = 0
+var int lastBiasWeekly = 0
+
+// Update confirmation counters
+confirm1m := rawBias1m == lastBias1m ? confirm1m + 1 : 1
+confirm5m := rawBias5m == lastBias5m ? confirm5m + 1 : 1
+confirm15m := rawBias15m == lastBias15m ? confirm15m + 1 : 1
+confirm1h := rawBias1h == lastBias1h ? confirm1h + 1 : 1
+confirm4h := rawBias4h == lastBias4h ? confirm4h + 1 : 1
+confirmDaily := rawBiasDaily == lastBiasDaily ? confirmDaily + 1 : 1
+confirmWeekly := rawBiasWeekly == lastBiasWeekly ? confirmWeekly + 1 : 1
+
+lastBias1m := rawBias1m
+lastBias5m := rawBias5m
+lastBias15m := rawBias15m
+lastBias1h := rawBias1h
+lastBias4h := rawBias4h
+lastBiasDaily := rawBiasDaily
+lastBiasWeekly := rawBiasWeekly
+
+// Only confirm bias after required confirmation bars
+bias1m = confirm1m >= confirmationBars ? rawBias1m : 0
+bias5m = confirm5m >= confirmationBars ? rawBias5m : 0
+bias15m = confirm15m >= confirmationBars ? rawBias15m : 0
+bias1h = confirm1h >= confirmationBars ? rawBias1h : 0
+bias4h = confirm4h >= confirmationBars ? rawBias4h : 0
+biasDaily = confirmDaily >= confirmationBars ? rawBiasDaily : 0
+biasWeekly = confirmWeekly >= confirmationBars ? rawBiasWeekly : 0
+
+// ==================== WEIGHTED SCORING ====================
+// Weights: Weekly=3, Daily=3, 4H=2, 1H=2, 15m=1, 5m=1, 1m=1
+// Total max weight = 13
+
+weight1m = 1
+weight5m = 1
+weight15m = 1
+weight1h = 2
+weight4h = 2
+weightDaily = 3
+weightWeekly = 3
+
+// Calculate weighted total
+weightedBullScore = (bias1m == 1 ? weight1m : 0) + (bias5m == 1 ? weight5m : 0) +
+     (bias15m == 1 ? weight15m : 0) + (bias1h == 1 ? weight1h : 0) +
+     (bias4h == 1 ? weight4h : 0) + (biasDaily == 1 ? weightDaily : 0) +
+     (biasWeekly == 1 ? weightWeekly : 0)
+
+weightedBearScore = (bias1m == -1 ? weight1m : 0) + (bias5m == -1 ? weight5m : 0) +
+     (bias15m == -1 ? weight15m : 0) + (bias1h == -1 ? weight1h : 0) +
+     (bias4h == -1 ? weight4h : 0) + (biasDaily == -1 ? weightDaily : 0) +
+     (biasWeekly == -1 ? weightWeekly : 0)
+
+totalWeight = weight1m + weight5m + weight15m + weight1h + weight4h + weightDaily + weightWeekly
+
+// Calculate weighted bias (-13 to +13 range, then normalized)
+weightedTotalBias = weightedBullScore - weightedBearScore
+
+// Simple total for non-weighted mode
+simpleTotalBias = bias1m + bias5m + bias15m + bias1h + bias4h + biasDaily + biasWeekly
+
+// Use weighted or simple based on setting
+totalBias = useWeightedScoring ? weightedTotalBias : simpleTotalBias
+overallBias = totalBias > 0 ? "BULLISH" : totalBias < 0 ? "BEARISH" : "NEUTRAL"
+overallColor = totalBias > 0 ? color.green : totalBias < 0 ? color.red : color.gray
+
+// Calculate alignment strength (for display)
+bullCount = (bias1m == 1 ? 1 : 0) + (bias5m == 1 ? 1 : 0) + (bias15m == 1 ? 1 : 0) +
+     (bias1h == 1 ? 1 : 0) + (bias4h == 1 ? 1 : 0) + (biasDaily == 1 ? 1 : 0) +
+     (biasWeekly == 1 ? 1 : 0)
+bearCount = (bias1m == -1 ? 1 : 0) + (bias5m == -1 ? 1 : 0) + (bias15m == -1 ? 1 : 0) +
+     (bias1h == -1 ? 1 : 0) + (bias4h == -1 ? 1 : 0) + (biasDaily == -1 ? 1 : 0) +
+     (biasWeekly == -1 ? 1 : 0)
+alignmentStrength = math.max(bullCount, bearCount)
+
+// Weighted alignment threshold (if using weighted scoring, require higher weighted score)
+weightedBullThreshold = useWeightedScoring ? 6 : minAlignmentForSignal  // At least 6/13 weighted points
+weightedBearThreshold = useWeightedScoring ? 6 : minAlignmentForSignal
+
+bullishAligned = useWeightedScoring ? (weightedBullScore >= weightedBullThreshold and bullCount >= 3) :
+     bullCount >= minAlignmentForSignal
+bearishAligned = useWeightedScoring ? (weightedBearScore >= weightedBearThreshold and bearCount >= 3) :
+     bearCount >= minAlignmentForSignal
+
+// ==================== SWING HIGH/LOW DETECTION ====================
+// Detect swing highs and lows using pivothigh/pivotlow
+swingHigh = ta.pivothigh(high, swingLength, swingLength)
+swingLow = ta.pivotlow(low, swingLength, swingLength)
+
+// Track most recent swing highs and lows
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var int lastSwingHighBar = na
+var int lastSwingLowBar = na
+
+if not na(swingHigh)
+    lastSwingHigh := swingHigh
+    lastSwingHighBar := bar_index - swingLength
+
+if not na(swingLow)
+    lastSwingLow := swingLow
+    lastSwingLowBar := bar_index - swingLength
+
+// ==================== TREND TRACKING ====================
+// Track current trend based on swing structure
+var int currentTrend = 0  // 1 = uptrend, -1 = downtrend, 0 = undefined
+
+// Update trend based on swing structure
+// Uptrend: making higher highs and higher lows
+// Downtrend: making lower highs and lower lows
+var float prevSwingHigh = na
+var float prevSwingLow = na
+
+if not na(swingHigh)
+    if not na(prevSwingHigh) and swingHigh > prevSwingHigh
+        currentTrend := 1  // Higher high = uptrend
+    else if not na(prevSwingHigh) and swingHigh < prevSwingHigh
+        currentTrend := -1  // Lower high = downtrend
+    prevSwingHigh := swingHigh
+
+if not na(swingLow)
+    if not na(prevSwingLow) and swingLow > prevSwingLow
+        currentTrend := 1  // Higher low = uptrend
+    else if not na(prevSwingLow) and swingLow < prevSwingLow
+        currentTrend := -1  // Lower low = downtrend
+    prevSwingLow := swingLow
+
+// ==================== CHoCH DETECTION (TREND REVERSAL) ====================
+// CHoCH = Change of Character = Trend reversal signal
+// Bullish CHoCH: Downtrend breaks above previous swing high (body close)
+// Bearish CHoCH: Uptrend breaks below previous swing low (body close)
+
+var bool chochDetected = false
+var string chochType = ""
+
+// Bullish CHoCH: Was in downtrend, now breaks above last swing high
+bullishCHoCH = currentTrend == -1 and not na(lastSwingHigh) and
+     close > lastSwingHigh and close[1] <= lastSwingHigh
+
+// Bearish CHoCH: Was in uptrend, now breaks below last swing low
+bearishCHoCH = currentTrend == 1 and not na(lastSwingLow) and
+     close < lastSwingLow and close[1] >= lastSwingLow
+
+// Check MTF alignment if required and update trend
+if bullishCHoCH
+    currentTrend := 1
+if bearishCHoCH
+    currentTrend := -1
+
+// ==================== BOS DETECTION (TREND CONTINUATION) ====================
+// Bullish BOS: In uptrend, breaks above last swing high
+bullishBOS = currentTrend == 1 and not na(lastSwingHigh) and
+     close > lastSwingHigh and close[1] <= lastSwingHigh
+
+// Bearish BOS: In downtrend, breaks below last swing low
+bearishBOS = currentTrend == -1 and not na(lastSwingLow) and
+     close < lastSwingLow and close[1] >= lastSwingLow
+
+// Draw CHoCH/BOS as simple shapes (no text to avoid clutter)
+drawBullishCHoCH = showCHoCH and bullishCHoCH and (requireMTFAlignment ? bullishAligned : true)
+drawBearishCHoCH = showCHoCH and bearishCHoCH and (requireMTFAlignment ? bearishAligned : true)
+drawBullishBOS = showBOS and bullishBOS and (requireMTFAlignment ? bullishAligned : true)
+drawBearishBOS = showBOS and bearishBOS and (requireMTFAlignment ? bearishAligned : true)
+
+// CHoCH = diamonds (trend reversal)
+plotshape(drawBullishCHoCH, "CHoCH Up", style=shape.diamond, location=location.belowbar,
+     color=color.new(color.lime, 0), size=size.tiny)
+plotshape(drawBearishCHoCH, "CHoCH Down", style=shape.diamond, location=location.abovebar,
+     color=color.new(color.orange, 0), size=size.tiny)
+
+// BOS = circles (trend continuation)
+plotshape(drawBullishBOS, "BOS Up", style=shape.circle, location=location.belowbar,
+     color=color.new(color.green, 30), size=size.tiny)
+plotshape(drawBearishBOS, "BOS Down", style=shape.circle, location=location.abovebar,
+     color=color.new(color.red, 30), size=size.tiny)
+
+// ==================== HELPER FUNCTIONS ====================
+getBiasText(bias) =>
+    bias == 1 ? "BULL" : bias == -1 ? "BEAR" : "NEUT"
+
+getBiasColor(bias) =>
+    bias == 1 ? color.new(color.green, 0) : bias == -1 ? color.new(color.red, 0) : color.new(color.gray, 0)
+
+getBiasSymbol(bias) =>
+    bias == 1 ? "▲" : bias == -1 ? "▼" : "●"
+
+getTablePosition(pos) =>
+    pos == "top_left" ? position.top_left :
+     pos == "top_center" ? position.top_center :
+     pos == "top_right" ? position.top_right :
+     pos == "middle_left" ? position.middle_left :
+     pos == "middle_center" ? position.middle_center :
+     pos == "middle_right" ? position.middle_right :
+     pos == "bottom_left" ? position.bottom_left :
+     pos == "bottom_center" ? position.bottom_center :
+     position.bottom_right
+
+getTableSize(sz) =>
+    sz == "tiny" ? size.tiny :
+     sz == "small" ? size.small :
+     sz == "normal" ? size.normal :
+     size.large
+
+// ==================== HELPER - ADX STATUS ====================
+getADXColor(adxVal) =>
+    na(adxVal) ? color.gray : adxVal >= adxThreshold ? color.new(color.green, 30) : color.new(color.orange, 30)
+
+getADXText(adxVal) =>
+    na(adxVal) ? "-" : str.tostring(math.round(adxVal))
+
+// ==================== DRAW TABLE ====================
+var table biasTable = table.new(getTablePosition(tablePosition), 4, 10,
+     bgcolor=color.new(color.black, 85),
+     border_width=1,
+     border_color=color.new(color.gray, 50))
+
+if barstate.islast
+    txtSize = getTableSize(tableSize)
+
+    // Header
+    table.cell(biasTable, 0, 0, "TF", bgcolor=color.new(color.blue, 70),
+         text_color=color.white, text_size=txtSize)
+    table.cell(biasTable, 1, 0, "Bias", bgcolor=color.new(color.blue, 70),
+         text_color=color.white, text_size=txtSize)
+    table.cell(biasTable, 2, 0, "", bgcolor=color.new(color.blue, 70),
+         text_color=color.white, text_size=txtSize)
+    table.cell(biasTable, 3, 0, "ADX", bgcolor=color.new(color.blue, 70),
+         text_color=color.white, text_size=txtSize)
+
+    // 1 Minute
+    table.cell(biasTable, 0, 1, "1m", bgcolor=color.new(color.black, 90),
+         text_color=color.gray, text_size=txtSize)
+    table.cell(biasTable, 1, 1, getBiasText(bias1m), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(bias1m), text_size=txtSize)
+    table.cell(biasTable, 2, 1, getBiasSymbol(bias1m), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(bias1m), text_size=txtSize)
+    table.cell(biasTable, 3, 1, getADXText(adx1m), bgcolor=color.new(color.black, 90),
+         text_color=getADXColor(adx1m), text_size=txtSize)
+
+    // 5 Minute
+    table.cell(biasTable, 0, 2, "5m", bgcolor=color.new(color.black, 90),
+         text_color=color.gray, text_size=txtSize)
+    table.cell(biasTable, 1, 2, getBiasText(bias5m), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(bias5m), text_size=txtSize)
+    table.cell(biasTable, 2, 2, getBiasSymbol(bias5m), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(bias5m), text_size=txtSize)
+    table.cell(biasTable, 3, 2, getADXText(adx5m), bgcolor=color.new(color.black, 90),
+         text_color=getADXColor(adx5m), text_size=txtSize)
+
+    // 15 Minute
+    table.cell(biasTable, 0, 3, "15m", bgcolor=color.new(color.black, 90),
+         text_color=color.gray, text_size=txtSize)
+    table.cell(biasTable, 1, 3, getBiasText(bias15m), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(bias15m), text_size=txtSize)
+    table.cell(biasTable, 2, 3, getBiasSymbol(bias15m), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(bias15m), text_size=txtSize)
+    table.cell(biasTable, 3, 3, getADXText(adx15m), bgcolor=color.new(color.black, 90),
+         text_color=getADXColor(adx15m), text_size=txtSize)
+
+    // 1 Hour
+    table.cell(biasTable, 0, 4, "1H", bgcolor=color.new(color.black, 90),
+         text_color=color.gray, text_size=txtSize)
+    table.cell(biasTable, 1, 4, getBiasText(bias1h), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(bias1h), text_size=txtSize)
+    table.cell(biasTable, 2, 4, getBiasSymbol(bias1h), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(bias1h), text_size=txtSize)
+    table.cell(biasTable, 3, 4, getADXText(adx1h), bgcolor=color.new(color.black, 90),
+         text_color=getADXColor(adx1h), text_size=txtSize)
+
+    // 4 Hour
+    table.cell(biasTable, 0, 5, "4H", bgcolor=color.new(color.black, 90),
+         text_color=color.gray, text_size=txtSize)
+    table.cell(biasTable, 1, 5, getBiasText(bias4h), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(bias4h), text_size=txtSize)
+    table.cell(biasTable, 2, 5, getBiasSymbol(bias4h), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(bias4h), text_size=txtSize)
+    table.cell(biasTable, 3, 5, getADXText(adx4h), bgcolor=color.new(color.black, 90),
+         text_color=getADXColor(adx4h), text_size=txtSize)
+
+    // Daily
+    table.cell(biasTable, 0, 6, "Daily", bgcolor=color.new(color.black, 90),
+         text_color=color.gray, text_size=txtSize)
+    table.cell(biasTable, 1, 6, getBiasText(biasDaily), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(biasDaily), text_size=txtSize)
+    table.cell(biasTable, 2, 6, getBiasSymbol(biasDaily), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(biasDaily), text_size=txtSize)
+    table.cell(biasTable, 3, 6, getADXText(adxDaily), bgcolor=color.new(color.black, 90),
+         text_color=getADXColor(adxDaily), text_size=txtSize)
+
+    // Weekly
+    table.cell(biasTable, 0, 7, "Weekly", bgcolor=color.new(color.black, 90),
+         text_color=color.gray, text_size=txtSize)
+    table.cell(biasTable, 1, 7, getBiasText(biasWeekly), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(biasWeekly), text_size=txtSize)
+    table.cell(biasTable, 2, 7, getBiasSymbol(biasWeekly), bgcolor=color.new(color.black, 90),
+         text_color=getBiasColor(biasWeekly), text_size=txtSize)
+    table.cell(biasTable, 3, 7, getADXText(adxWeekly), bgcolor=color.new(color.black, 90),
+         text_color=getADXColor(adxWeekly), text_size=txtSize)
+
+    // Overall Bias (if enabled)
+    if showOverallBias
+        table.cell(biasTable, 0, 8, "OVERALL", bgcolor=color.new(color.blue, 70),
+             text_color=color.white, text_size=txtSize)
+        table.cell(biasTable, 1, 8, overallBias, bgcolor=color.new(color.blue, 70),
+             text_color=overallColor, text_size=txtSize)
+        strengthText = str.tostring(alignmentStrength) + "/7"
+        table.cell(biasTable, 2, 8, strengthText, bgcolor=color.new(color.blue, 70),
+             text_color=overallColor, text_size=txtSize)
+        // Show weighted score if using weighted scoring
+        weightedText = useWeightedScoring ? str.tostring(weightedTotalBias) + "/13" : ""
+        table.cell(biasTable, 3, 8, weightedText, bgcolor=color.new(color.blue, 70),
+             text_color=overallColor, text_size=txtSize)
+
+    // Accuracy Mode Status Row
+    accuracyStatus = (useADXFilter ? "ADX" : "") + (useWeightedScoring ? "+W" : "") + " " + str.tostring(confirmationBars) + "bar"
+    table.cell(biasTable, 0, 9, "Mode", bgcolor=color.new(color.purple, 70),
+         text_color=color.white, text_size=txtSize)
+    table.merge_cells(biasTable, 1, 9, 3, 9)
+    table.cell(biasTable, 1, 9, accuracyStatus, bgcolor=color.new(color.purple, 70),
+         text_color=color.white, text_size=txtSize)
+
+// ==================== BACKGROUND COLORING ====================
+// Highlight CHoCH events
+bgcolor(bullishCHoCH and showCHoCH ? color.new(color.lime, 90) :
+     bearishCHoCH and showCHoCH ? color.new(color.orange, 90) : na)
+
+// ==================== DEBUGGING PLOTS ====================
+// Temporarily uncomment these to debug bias calculation
+// plotchar(true, "Raw 1m Bias", rawBias1m, location=location.belowbar, color=color.white, size=size.tiny)
+// plotchar(true, "ADX 1m", adx1m, location=location.belowbar, color=color.yellow, size=size.tiny)
+// plotchar(true, "Confirm 1m", confirm1m, location=location.belowbar, color=color.blue, size=size.tiny)
+
+// Check EMA crossover conditions for 1m timeframe:
+// plot(ta.ema(close, fastLength), "Fast EMA", color=color.blue)
+// plot(ta.ema(close, slowLength), "Slow EMA", color=color.red)
+// plotchar(ta.ema(close, fastLength) > ta.ema(close, slowLength), "Fast > Slow", location=location.belowbar, color=color.green)
+// plotchar(close > ta.ema(close, fastLength), "Close > Fast", location=location.abovebar, color=color.purple)
+
+// ==================== ALERTS ====================
+// Structure + Alignment alerts
+alertcondition(bullishCHoCH and bullishAligned, title="Bullish CHoCH + Alignment",
+     message="BULLISH CHoCH detected with MTF alignment on {{ticker}}")
+alertcondition(bearishCHoCH and bearishAligned, title="Bearish CHoCH + Alignment",
+     message="BEARISH CHoCH detected with MTF alignment on {{ticker}}")
+alertcondition(bullishBOS and bullishAligned, title="Bullish BOS + Alignment",
+     message="BULLISH BOS detected with MTF alignment on {{ticker}}")
+alertcondition(bearishBOS and bearishAligned, title="Bearish BOS + Alignment",
+     message="BEARISH BOS detected with MTF alignment on {{ticker}}")
+
+// Strong MTF Alignment alerts (when 5+ TFs agree)
+strongBullish = bullCount >= 5
+strongBearish = bearCount >= 5
+var bool lastStrongBullish = false
+var bool lastStrongBearish = false
+newStrongBullish = strongBullish and not lastStrongBullish
+newStrongBearish = strongBearish and not lastStrongBearish
+lastStrongBullish := strongBullish
+lastStrongBearish := strongBearish
+
+alertcondition(newStrongBullish, title="Strong Bullish Alignment (5+/7)",
+     message="STRONG BULLISH: 5+ timeframes aligned bullish on {{ticker}}")
+alertcondition(newStrongBearish, title="Strong Bearish Alignment (5+/7)",
+     message="STRONG BEARISH: 5+ timeframes aligned bearish on {{ticker}}")
+
+// Perfect alignment (all 7 TFs agree)
+perfectBullish = bullCount == 7
+perfectBearish = bearCount == 7
+var bool lastPerfectBullish = false
+var bool lastPerfectBearish = false
+newPerfectBullish = perfectBullish and not lastPerfectBullish
+newPerfectBearish = perfectBearish and not lastPerfectBearish
+lastPerfectBullish := perfectBullish
+lastPerfectBearish := perfectBearish
+
+alertcondition(newPerfectBullish, title="PERFECT Bullish Alignment (7/7)",
+     message="PERFECT BULLISH: ALL 7 timeframes aligned bullish on {{ticker}} - HIGH PROBABILITY!")
+alertcondition(newPerfectBearish, title="PERFECT Bearish Alignment (7/7)",
+     message="PERFECT BEARISH: ALL 7 timeframes aligned bearish on {{ticker}} - HIGH PROBABILITY!")
+
+// ==================== VWAP CALCULATION ====================
+// Auto-select VWAP anchor based on chart timeframe
+vwapAnchor = timeframe.isintraday ? "D" : timeframe.isdaily ? "W" : "M"
+
+var float cumVol = 0.0
+var float cumVolPrice = 0.0
+var float cumVolPrice2 = 0.0
+
+isNewVWAPPeriod = ta.change(time(vwapAnchor)) != 0
+if isNewVWAPPeriod
+    cumVol := 0.0
+    cumVolPrice := 0.0
+    cumVolPrice2 := 0.0
+
+cumVol := cumVol + volume
+cumVolPrice := cumVolPrice + (hlc3 * volume)
+cumVolPrice2 := cumVolPrice2 + (hlc3 * hlc3 * volume)
+
+vwapVal = cumVolPrice / cumVol
+vwapVariance = (cumVolPrice2 / cumVol) - (vwapVal * vwapVal)
+vwapStdev = math.sqrt(math.max(vwapVariance, 0))
+vwapUpper = vwapVal + (vwapStdev * vwapBandMult)
+vwapLower = vwapVal - (vwapStdev * vwapBandMult)
+
+// Plot VWAP (subtle styling)
+vwapColor = close > vwapVal ? color.new(color.teal, 40) : color.new(color.orange, 40)
+plot(showVWAP ? vwapVal : na, "VWAP", color=vwapColor, linewidth=1)
+plot(showVWAP ? vwapUpper : na, "VWAP Upper", color=color.new(color.gray, 70), linewidth=1, style=plot.style_circles)
+plot(showVWAP ? vwapLower : na, "VWAP Lower", color=color.new(color.gray, 70), linewidth=1, style=plot.style_circles)
+
+// ==================== OPTIONS SIGNAL LOGIC ====================
+// Volume analysis
+avgVol = ta.sma(volume, 20)
+volSpike = volume > avgVol * 1.3
+
+// Pre-calculate ta functions to avoid conditional execution issues
+atrVal = ta.atr(14)
+distLowToVWAP = math.abs(low - vwapVal)
+distHighToVWAP = math.abs(high - vwapVal)
+lowestDistLow = ta.lowest(distLowToVWAP, 3)
+lowestDistHigh = ta.lowest(distHighToVWAP, 3)
+lowestLow3 = ta.lowest(low, 3)
+highestHigh3 = ta.highest(high, 3)
+
+// Pullback detection: price touched VWAP or band recently (within 3 bars)
+touchedVWAP = lowestDistLow < atrVal * 0.3 or lowestDistHigh < atrVal * 0.3
+touchedLowerBand = lowestLow3 <= vwapLower
+touchedUpperBand = highestHigh3 >= vwapUpper
+
+// Bullish pullback: price dipped to VWAP/lower band and now bouncing
+bullishPullback = (touchedVWAP or touchedLowerBand) and close > open and close > vwapVal
+// Bearish pullback: price rallied to VWAP/upper band and now rejecting
+bearishPullback = (touchedVWAP or touchedUpperBand) and close < open and close < vwapVal
+
+// Strong alignment check for options
+optionsBullishAligned = bullCount >= minAlignmentForOptions
+optionsBearishAligned = bearCount >= minAlignmentForOptions
+
+// CALL Signal: Strong bullish alignment + pullback entry + momentum
+callSignal = showOptionsSignals and optionsBullishAligned and bullishPullback and
+     close > close[1] and (volSpike or not requireMTFAlignment)
+
+// PUT Signal: Strong bearish alignment + pullback entry + momentum
+putSignal = showOptionsSignals and optionsBearishAligned and bearishPullback and
+     close < close[1] and (volSpike or not requireMTFAlignment)
+
+// Targets and stops (VWAP band primary, ATR secondary)
+callTPBand = vwapUpper
+putTPBand = vwapLower
+callTPAtr = close + atrVal * tpAtrMult
+putTPAtr = close - atrVal * tpAtrMult
+callStop = close - atrVal * slAtrMult
+putStop = close + atrVal * slAtrMult
+
+plot(showTargets and callSignal ? callTPBand : na, "CALL TP (Band)", color=color.new(color.green, 30), style=plot.style_cross, linewidth=2)
+plot(showTargets and callSignal ? callTPAtr : na, "CALL TP (ATR)", color=color.new(color.green, 65), style=plot.style_circles)
+plot(showTargets and callSignal ? callStop : na, "CALL Stop", color=color.new(color.red, 50), linewidth=1)
+
+plot(showTargets and putSignal ? putTPBand : na, "PUT TP (Band)", color=color.new(color.red, 30), style=plot.style_cross, linewidth=2)
+plot(showTargets and putSignal ? putTPAtr : na, "PUT TP (ATR)", color=color.new(color.red, 65), style=plot.style_circles)
+plot(showTargets and putSignal ? putStop : na, "PUT Stop", color=color.new(color.green, 50), linewidth=1)
+
+if showTargets and showTargetLabels and callSignal
+    labelText = "CALL TP (band): $" + str.tostring(callTPBand, format.mintick) +
+        "\nTP (ATR): $" + str.tostring(callTPAtr, format.mintick) +
+        "\nSL: $" + str.tostring(callStop, format.mintick)
+    label.new(bar_index, callTPBand, labelText, style=label.style_label_down,
+         color=color.new(color.green, 5), textcolor=color.white, size=size.tiny)
+
+if showTargets and showTargetLabels and putSignal
+    labelText = "PUT TP (band): $" + str.tostring(putTPBand, format.mintick) +
+        "\nTP (ATR): $" + str.tostring(putTPAtr, format.mintick) +
+        "\nSL: $" + str.tostring(putStop, format.mintick)
+    label.new(bar_index, putTPBand, labelText, style=label.style_label_up,
+         color=color.new(color.red, 5), textcolor=color.white, size=size.tiny)
+
+// Plot signals (clean triangles with minimal text)
+plotshape(callSignal, "CALL", style=shape.triangleup, location=location.belowbar,
+     color=color.new(color.green, 0), size=size.small, text="CALL")
+plotshape(putSignal, "PUT", style=shape.triangledown, location=location.abovebar,
+     color=color.new(color.red, 0), size=size.small, text="PUT")
+
+// ==================== OPTIONS ALERTS ====================
+// Note: alertcondition requires const string, use {{ticker}} and {{close}} placeholders
+alertcondition(callSignal, title="BUY CALL Signal",
+     message="BUY CALL on {{ticker}} @ {{close}}")
+alertcondition(putSignal, title="BUY PUT Signal",
+     message="BUY PUT on {{ticker}} @ {{close}}")
