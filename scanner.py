@@ -12,6 +12,7 @@ from moomoo import (
 
 from indicators import compute_rsi, compute_macd, compute_bollinger
 from grader import detect_sell_signals, compute_confluence_score, grade_minervini, compute_health, compute_synergy
+from mtf_bias import compute_mtf_bias
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +322,14 @@ def analyze_stock(position, log_callback=None, quote_ctx=None):
 
         health = compute_health(stock_data, active_signals)
         synergy = compute_synergy(stock_data, active_signals, minervini)
+
+        # MTF Bias (best-effort; don't fail the whole analysis if it errors)
+        try:
+            mtf = compute_mtf_bias(ticker, quote_ctx=quote_ctx)
+            stock_data["mtf_bias"] = mtf
+        except Exception as mtf_exc:
+            log("warn", f"{ticker}: MTF bias failed: {mtf_exc}")
+            stock_data["mtf_bias"] = None
 
         stock_data["active_signals"] = active_signals
         stock_data["confluence_score"] = confluence_score

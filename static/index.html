@@ -491,6 +491,63 @@ html, body {
 .panel:nth-child(9) { animation-delay: 0.4s; }
 .panel:nth-child(10) { animation-delay: 0.45s; }
 .panel:nth-child(11) { animation-delay: 0.5s; }
+.panel:nth-child(12) { animation-delay: 0.55s; }
+
+/* === MTF BIAS TABLE === */
+.mtf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.mtf-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-accent);
+}
+
+.mtf-table th:not(:first-child) {
+  text-align: center;
+}
+
+.mtf-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.mtf-table td:first-child {
+  text-align: left;
+  color: var(--text-secondary);
+}
+
+.mtf-bias-bull { color: var(--green); font-weight: 600; }
+.mtf-bias-bear { color: var(--red); font-weight: 600; }
+.mtf-bias-neut { color: var(--text-muted); }
+.mtf-adx-strong { color: var(--green); }
+.mtf-adx-weak { color: var(--amber); }
+.mtf-confirmed { opacity: 1; }
+.mtf-unconfirmed { opacity: 0.5; }
+
+.mtf-overall {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: var(--bg-panel-header);
+  border: 1px solid var(--border);
+}
+
+.mtf-verdict {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .panel { animation: none; opacity: 1; }
@@ -840,6 +897,14 @@ html, body {
     </div>
   </div>
 
+  <!-- PANEL 12: MTF Bias -->
+  <div class="panel" data-panel-id="panel-mtf-bias">
+    <div class="panel-header" id="mtfBiasHeader">MTF Bias</div>
+    <div class="panel-body" id="panelMtfBias">
+      <div style="color:var(--text-muted);font-size:11px;">Select a ticker</div>
+    </div>
+  </div>
+
   <!-- PANEL 10: Scan Log -->
   <div class="panel" data-panel-id="panel-scan-log">
     <div class="panel-header">Scan Log</div>
@@ -1137,6 +1202,7 @@ function renderAll() {
   if (selectedTicker) {
     renderScannerGrades();
     renderPositionDetail();
+    renderMtfBias();
   } else if (scanData.portfolio && scanData.portfolio.length > 0) {
     selectTicker(scanData.portfolio[0].ticker);
   }
@@ -1458,6 +1524,75 @@ function renderSellSignals() {
     '</table>';
 }
 
+// --- Panel 12: MTF Bias ---
+function renderMtfBias() {
+  if (!selectedTicker || !scanData) return;
+  var p = (scanData.portfolio || []).find(function(x) { return x.ticker === selectedTicker; });
+  if (!p || !p.mtf_bias) {
+    $('mtfBiasHeader').innerHTML = 'MTF Bias';
+    $('panelMtfBias').innerHTML = '<div style="color:var(--text-muted);font-size:11px;">Select a ticker</div>';
+    return;
+  }
+  $('mtfBiasHeader').innerHTML = 'MTF Bias &mdash; ' + escHtml(p.ticker);
+  var mtf = p.mtf_bias;
+  var tfs = mtf.timeframes || {};
+  var tfOrder = ['1m', '5m', '15m', '1H', '4H', 'D', 'W'];
+
+  var biasSymbol = function(b) { return b === 'BULL' ? '\u25B2' : b === 'BEAR' ? '\u25BC' : '\u25CF'; };
+  var biasClass = function(b) { return b === 'BULL' ? 'mtf-bias-bull' : b === 'BEAR' ? 'mtf-bias-bear' : 'mtf-bias-neut'; };
+  var adxClass = function(v) { return v != null && v >= 20 ? 'mtf-adx-strong' : 'mtf-adx-weak'; };
+  var confirmClass = function(c) { return c ? 'mtf-confirmed' : 'mtf-unconfirmed'; };
+
+  var rows = tfOrder.map(function(label) {
+    var info = tfs[label] || {};
+    var bias = info.bias || 'NEUT';
+    var adx = info.adx;
+    var confirmed = info.confirmed || false;
+    return '<tr class="' + confirmClass(confirmed) + '">' +
+      '<td>' + escHtml(label) + '</td>' +
+      '<td class="' + biasClass(bias) + '">' + bias + '</td>' +
+      '<td class="' + biasClass(bias) + '">' + biasSymbol(bias) + '</td>' +
+      '<td class="' + adxClass(adx) + '">' + (adx != null ? fmt(adx, 0) : '\u2014') + '</td>' +
+    '</tr>';
+  }).join('');
+
+  var overallClass = mtf.overall_bias === 'BULLISH' ? 'positive' :
+                     mtf.overall_bias === 'BEARISH' ? 'negative' : 'neutral';
+  var scoreSign = mtf.weighted_score > 0 ? '+' : '';
+
+  var structureTrend = (mtf.structure && mtf.structure.trend) || 'undefined';
+  var structureColor = structureTrend === 'uptrend' ? 'positive' :
+                       structureTrend === 'downtrend' ? 'negative' : 'neutral';
+
+  var structureEvents = '';
+  if (mtf.structure) {
+    if (mtf.structure.last_choch) {
+      var c = mtf.structure.last_choch;
+      var cColor = c.type === 'bullish' ? 'positive' : 'negative';
+      structureEvents += '<div class="data-row"><span class="data-label">Last CHoCH</span><span class="data-value ' + cColor + '">' + c.type.toUpperCase() + ' @ $' + c.price + '</span></div>';
+    }
+    if (mtf.structure.last_bos) {
+      var b = mtf.structure.last_bos;
+      var bColor = b.type === 'bullish' ? 'positive' : 'negative';
+      structureEvents += '<div class="data-row"><span class="data-label">Last BOS</span><span class="data-value ' + bColor + '">' + b.type.toUpperCase() + ' @ $' + b.price + '</span></div>';
+    }
+  }
+
+  $('panelMtfBias').innerHTML =
+    '<table class="mtf-table">' +
+      '<thead><tr><th>TF</th><th>Bias</th><th></th><th>ADX</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>' +
+    '<div class="mtf-overall">' +
+      '<div class="data-row"><span class="data-label">OVERALL</span><span class="data-value ' + overallClass + '" style="font-weight:700;">' + escHtml(mtf.overall_bias) + '</span></div>' +
+      '<div class="data-row"><span class="data-label">Alignment</span><span class="data-value ' + overallClass + '">' + mtf.alignment_strength + '/7</span></div>' +
+      '<div class="data-row"><span class="data-label">Weighted</span><span class="data-value ' + overallClass + '">' + scoreSign + mtf.weighted_score + '/' + mtf.max_weighted + '</span></div>' +
+      '<div class="data-row"><span class="data-label">Structure</span><span class="data-value ' + structureColor + '">' + structureTrend.toUpperCase() + '</span></div>' +
+      structureEvents +
+    '</div>' +
+    '<div class="mtf-verdict">' + escHtml(mtf.verdict || '') + '</div>';
+}
+
 // --- Ticker Selection ---
 function selectTicker(ticker) {
   selectedTicker = ticker;
@@ -1465,6 +1600,7 @@ function selectTicker(ticker) {
   renderHoldings();
   renderScannerGrades();
   renderPositionDetail();
+  renderMtfBias();
 }
 
 // --- TradingView Chart ---

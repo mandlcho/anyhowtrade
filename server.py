@@ -324,6 +324,23 @@ async def api_get_latest():
 # Routes — History
 # ---------------------------------------------------------------------------
 
+@app.get("/api/mtf/{ticker}")
+async def api_get_mtf(ticker: str):
+    from mtf_bias import compute_mtf_bias
+    from scanner import _get_quote_ctx
+
+    loop = asyncio.get_event_loop()
+
+    def fetch():
+        quote_ctx = _get_quote_ctx()
+        try:
+            return compute_mtf_bias(ticker.upper(), quote_ctx=quote_ctx)
+        finally:
+            quote_ctx.close()
+
+    return await loop.run_in_executor(None, fetch)
+
+
 @app.get("/api/history/{ticker}")
 async def api_get_history(ticker: str):
     from scanner import _get_quote_ctx, _fetch_history
