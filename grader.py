@@ -32,15 +32,16 @@ def detect_sell_signals(stock_data):
             "type": "bearish_divergence",
             "domain": "momentum",
             "severity": "critical",
-            "message": f"Bearish divergence — price near highs but RSI declining (RSI {momentum.get('rsi_14', '?')})",
+            "message": "Price is making new highs but momentum is fading. This often happens before a pullback — the stock looks strong on the surface but buyers are losing enthusiasm.",
         })
 
     if volume.get("volume_climax"):
+        rvol = volume.get('rvol', '?')
         signals.append({
             "type": "volume_climax",
             "domain": "volume",
             "severity": "critical",
-            "message": f"Volume climax detected — RVOL {volume.get('rvol', '?')}x. Distribution signal.",
+            "message": f"Unusually heavy trading volume ({rvol}x normal). When this happens on a down day, it often means big players are selling. Could be a sign of more downside ahead, but can also mark a bottom — watch what happens next.",
         })
 
     if not ma.get("price_above_50ma", True):
@@ -48,7 +49,7 @@ def detect_sell_signals(stock_data):
             "type": "below_ma50",
             "domain": "trend",
             "severity": "warning",
-            "message": "Trading below 50-day MA. Trend structure weakening.",
+            "message": "Price has dropped below its 50-day average. This is like the stock losing its short-term uptrend. Not a panic signal on its own, but worth watching — if it stays below, the trend may be shifting.",
         })
 
     if ma.get("price_above_200ma") is False:
@@ -56,7 +57,7 @@ def detect_sell_signals(stock_data):
             "type": "below_ma200",
             "domain": "trend",
             "severity": "warning",
-            "message": "Trading below 200-day MA. Long-term trend broken.",
+            "message": "Price is below its 200-day average — the long-term trend line. This is a more serious signal than being below the 50-day. Many institutional investors use this as a line in the sand.",
         })
 
     rsi = momentum.get("rsi_14", 50)
@@ -65,7 +66,7 @@ def detect_sell_signals(stock_data):
             "type": "rsi_oversold",
             "domain": "momentum",
             "severity": "warning",
-            "message": f"RSI oversold at {rsi}. May indicate capitulation or further downside.",
+            "message": f"The stock is heavily oversold (RSI {rsi:.0f}). This means it's been falling hard and fast. It could bounce from here, or it could keep falling if something is fundamentally wrong. Not necessarily a sell — sometimes this is where bargains are found.",
         })
 
     if rsi > 80:
@@ -73,7 +74,7 @@ def detect_sell_signals(stock_data):
             "type": "rsi_overbought",
             "domain": "momentum",
             "severity": "info",
-            "message": f"RSI overbought at {rsi}. Watch for reversal.",
+            "message": f"The stock is overbought (RSI {rsi:.0f}). It's been rising fast and may be due for a breather. This doesn't mean sell — strong stocks can stay overbought for weeks. Just be aware it's stretched.",
         })
 
     ext = ma.get("extension_from_50ma_pct", 0)
@@ -82,7 +83,7 @@ def detect_sell_signals(stock_data):
             "type": "extended_below_ma50",
             "domain": "trend",
             "severity": "critical",
-            "message": f"Extended {ext:.1f}% below 50-day MA. Severe trend damage.",
+            "message": f"Price is {ext:.0f}% below its 50-day average — that's a big gap. The stock has fallen significantly from where it was trending. Recovery from this distance is possible but usually takes time.",
         })
 
     macd_line = momentum.get("macd_line", 0)
@@ -94,7 +95,7 @@ def detect_sell_signals(stock_data):
                 "type": "macd_bearish_cross",
                 "domain": "momentum",
                 "severity": "info",
-                "message": "MACD bearish crossover with contracting histogram.",
+                "message": "Momentum is shifting negative. The short-term trend is weakening compared to the longer-term trend. This is an early warning — not urgent, but something to keep an eye on.",
             })
 
     return signals
@@ -147,14 +148,27 @@ def compute_health(stock_data, signals):
     reasons_bad = []
     reasons_good = []
 
+    # Human-readable signal names
+    _signal_names = {
+        "bearish_divergence": "momentum fading",
+        "volume_climax": "heavy selling volume",
+        "below_ma50": "below short-term trend",
+        "below_ma200": "below long-term trend",
+        "rsi_oversold": "heavily oversold",
+        "rsi_overbought": "stretched high",
+        "extended_below_ma50": "far below trend",
+        "macd_bearish_cross": "momentum turning negative",
+    }
+
     # --- Penalty: active signals ---
     for s in signals:
+        name = _signal_names.get(s["type"], s["type"].replace("_", " "))
         if s["severity"] == "critical":
             score -= 25
-            reasons_bad.append(s["type"].replace("_", " "))
+            reasons_bad.append(name)
         elif s["severity"] == "warning":
             score -= 15
-            reasons_bad.append(s["type"].replace("_", " "))
+            reasons_bad.append(name)
         elif s["severity"] == "info":
             score -= 5
 
@@ -227,24 +241,24 @@ def compute_health(stock_data, signals):
     if tag == "sell" and action == "HOLD":
         action = "WATCH"
 
-    # Verdict — one plain English sentence
+    # Verdict — plain English, make clear these are signals not orders
     if action == "SELL":
         if reasons_bad:
-            verdict = f"{ticker}: {', '.join(reasons_bad[:2]).capitalize()}. Consider cutting this position."
+            verdict = f"{ticker}: Several warning signs ({', '.join(reasons_bad[:3])}). You might want to consider reducing or closing this position — but it's your call."
         else:
-            verdict = f"{ticker}: Multiple warning signs. Consider selling."
+            verdict = f"{ticker}: Multiple things look off here. Worth asking yourself if you'd buy this stock today at this price."
     elif action == "WATCH":
         if reasons_bad:
-            verdict = f"{ticker}: {', '.join(reasons_bad[:2]).capitalize()}. Monitor closely."
+            verdict = f"{ticker}: Some concerns ({', '.join(reasons_bad[:2])}). Not urgent, but keep an eye on it. You can hold — just stay aware."
         else:
-            verdict = f"{ticker}: Some concerns. Keep an eye on it."
+            verdict = f"{ticker}: A few yellow flags. Nothing to panic about, but don't ignore it either."
     elif action == "ADD":
-        verdict = f"{ticker}: Healthy and oversold. Could be a buying opportunity."
+        verdict = f"{ticker}: Looking healthy and pulling back — could be a good spot to add more if you believe in the stock."
     else:
         if reasons_good:
-            verdict = f"{ticker}: {', '.join(reasons_good[:2]).capitalize()}. No action needed."
+            verdict = f"{ticker}: Looking good ({', '.join(reasons_good[:2])}). No reason to touch it — let it ride."
         else:
-            verdict = f"{ticker}: Stable. No action needed."
+            verdict = f"{ticker}: Nothing to worry about right now. Sit tight."
 
     return {
         "health_score": score,
@@ -281,108 +295,108 @@ def compute_synergy(stock_data, signals, minervini=None):
     pnl_pct = stock_data.get("unrealized_pnl_pct", 0) or 0
     rsi = momentum.get("rsi_14", 50) or 50
 
-    # --- SELL CRITERIA (each is an independent reason to be bearish) ---
+    # --- SELL CRITERIA (each is an independent reason to be concerned) ---
     sell_criteria = []
 
     # Trend
     if ma.get("price_above_50ma") is False:
-        sell_criteria.append("Below 50-day MA")
+        sell_criteria.append("Price fell below its short-term trend")
     if ma.get("price_above_200ma") is False:
-        sell_criteria.append("Below 200-day MA")
+        sell_criteria.append("Price fell below its long-term trend")
     ext = ma.get("extension_from_50ma_pct", 0) or 0
     if ext < -15:
-        sell_criteria.append(f"Extended {ext:.0f}% below 50MA")
+        sell_criteria.append(f"Price is {abs(ext):.0f}% below where it normally trades")
 
     # Momentum
     if momentum.get("bearish_divergence"):
-        sell_criteria.append("Bearish divergence")
+        sell_criteria.append("Momentum is fading even though price looks OK")
     if rsi < 30:
-        sell_criteria.append(f"RSI oversold ({rsi:.0f})")
+        sell_criteria.append("Stock has been selling off heavily")
     macd_line = momentum.get("macd_line", 0) or 0
     macd_signal = momentum.get("macd_signal", 0) or 0
     if macd_line < macd_signal and (momentum.get("macd_histogram", 0) or 0) < 0:
-        sell_criteria.append("MACD bearish")
+        sell_criteria.append("Short-term momentum is weakening")
 
     # Volume
     if volume.get("volume_climax"):
-        sell_criteria.append("Volume climax")
+        sell_criteria.append("Unusually heavy trading volume (possible big sellers)")
     rvol = volume.get("rvol", 1) or 1
     vol_trend = volume.get("vol_5d_vs_50d", 1) or 1
     if rvol >= 2.0 and (price_action.get("change_1d_pct", 0) or 0) < -2:
-        sell_criteria.append("Heavy volume on red day")
+        sell_criteria.append("Big volume on a down day — institutions may be exiting")
 
     # Price action
     close_pos = price_action.get("close_position_in_range_pct", 50) or 50
     if close_pos < 20:
-        sell_criteria.append("Closed in bottom 20% of range")
+        sell_criteria.append("Closed near the day's low (sellers in control)")
     change_5d = price_action.get("change_5d_pct", 0) or 0
     if change_5d < -10:
-        sell_criteria.append(f"Down {change_5d:.0f}% in 5 days")
+        sell_criteria.append(f"Down {abs(change_5d):.0f}% in just 5 days")
 
     # 52-week
     pct_from_high = r52.get("pct_from_52w_high", 0) or 0
     if pct_from_high < -30:
-        sell_criteria.append(f"{pct_from_high:.0f}% from 52w high")
+        sell_criteria.append(f"Fallen {abs(pct_from_high):.0f}% from its yearly high")
 
     # Volatility
     bb_pos = volatility.get("bb_position_pct", 50) or 50
     if bb_pos < 5:
-        sell_criteria.append("At lower Bollinger Band")
+        sell_criteria.append("At the bottom of its normal trading range")
 
     # P&L
     if pnl_pct < -25:
-        sell_criteria.append(f"Position down {pnl_pct:.0f}%")
+        sell_criteria.append(f"You're down {abs(pnl_pct):.0f}% on this position")
 
-    # --- BUY CRITERIA (each is an independent reason to be bullish) ---
+    # --- BUY CRITERIA (each is an independent reason to be optimistic) ---
     buy_criteria = []
 
     # Trend
     if ma.get("price_above_50ma") and ma.get("price_above_200ma"):
-        buy_criteria.append("Above all major MAs")
+        buy_criteria.append("Price is above all major trend lines (healthy uptrend)")
     ma150 = ma.get("ma150", 0) or 0
     ma200 = ma.get("ma200", 0) or 0
     if ma150 and ma200 and ma150 > ma200:
-        buy_criteria.append("150MA > 200MA (uptrend)")
+        buy_criteria.append("Longer-term trend is pointing up")
 
     # Momentum
     if 40 <= rsi <= 60:
-        buy_criteria.append("RSI neutral zone")
+        buy_criteria.append("Momentum is balanced — not too hot, not too cold")
     if macd_line > macd_signal and (momentum.get("macd_histogram", 0) or 0) > 0:
-        buy_criteria.append("MACD bullish")
+        buy_criteria.append("Short-term momentum is positive")
     if momentum.get("macd_hist_direction") == "expanding" and macd_line > 0:
-        buy_criteria.append("MACD expanding positive")
+        buy_criteria.append("Momentum is accelerating upward")
 
     # Volume
     if rvol >= 1.5 and (price_action.get("change_1d_pct", 0) or 0) > 1:
-        buy_criteria.append("Strong volume on green day")
+        buy_criteria.append("Strong buying volume today")
     if vol_trend > 1.2:
-        buy_criteria.append("Rising volume trend")
+        buy_criteria.append("Trading volume has been increasing (growing interest)")
 
     # Price action
     if close_pos > 80:
-        buy_criteria.append("Closed in top 20% of range")
+        buy_criteria.append("Closed near the day's high (buyers in control)")
     change_20d = price_action.get("change_20d_pct", 0) or 0
     if change_20d > 10:
-        buy_criteria.append(f"Up {change_20d:.0f}% in 20 days")
+        buy_criteria.append(f"Up {change_20d:.0f}% over the past month")
 
     # 52-week
     if pct_from_high > -10:
-        buy_criteria.append("Near 52-week high")
+        buy_criteria.append("Trading near its yearly high (strength)")
     pct_from_low = r52.get("pct_from_52w_low", 0) or 0
     if pct_from_low > 50:
-        buy_criteria.append(f"{pct_from_low:.0f}% above 52w low")
+        buy_criteria.append(f"Well above its yearly low ({pct_from_low:.0f}% up)")
 
     # Volatility
     if bb_pos > 60:
-        buy_criteria.append("Upper Bollinger territory")
+        buy_criteria.append("Trading in the upper part of its range")
 
     # Minervini
     if minervini and minervini.get("passes"):
-        buy_criteria.append("Minervini trend template passes")
+        buy_criteria.append("Passes all 8 professional trend quality checks")
 
     # P&L
     if pnl_pct > 10:
-        buy_criteria.append(f"Position up {pnl_pct:.0f}%")
+        buy_criteria.append(f"You're up {pnl_pct:.0f}% — the trade is working")
 
     sell_synergy = len(sell_criteria) >= SYNERGY_THRESHOLD
     buy_synergy = len(buy_criteria) >= SYNERGY_THRESHOLD

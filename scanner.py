@@ -575,21 +575,21 @@ def run_scan(positions, watchlist_tickers=None, log_callback=None):
             synergy = result.get("synergy", {})
             if synergy.get("sell_synergy"):
                 count = synergy["sell_count"]
-                criteria_list = ", ".join(synergy["sell_criteria"][:5])
+                top3 = "; ".join(synergy["sell_criteria"][:3])
                 alerts.append({
                     "ticker": result["ticker"],
                     "signal": "sell_synergy",
                     "severity": "critical",
-                    "message": f"SELL SYNERGY: {count} bearish criteria aligned — {criteria_list}",
+                    "message": f"Multiple warning signs are lining up ({count} concerns). Including: {top3}. This doesn't mean you must sell — but it's worth paying attention to.",
                 })
             if synergy.get("buy_synergy"):
                 count = synergy["buy_count"]
-                criteria_list = ", ".join(synergy["buy_criteria"][:5])
+                top3 = "; ".join(synergy["buy_criteria"][:3])
                 alerts.append({
                     "ticker": result["ticker"],
                     "signal": "buy_synergy",
                     "severity": "critical",
-                    "message": f"BUY SYNERGY: {count} bullish criteria aligned — {criteria_list}",
+                    "message": f"A lot of things are looking good right now ({count} positive signs). Including: {top3}. Could be a good time to hold or add — your call.",
                 })
 
         # Market internals

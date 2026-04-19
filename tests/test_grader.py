@@ -156,7 +156,7 @@ class TestComputeHealth:
         assert health["action"] == "HOLD"
         assert health["health_score"] >= 70
         assert health["health_grade"] in ("A", "B")
-        assert "No action needed" in health["verdict"]
+        assert "let it ride" in health["verdict"] or "Sit tight" in health["verdict"]
 
     def test_critical_signals_get_sell(self):
         data = make_stock_data(
