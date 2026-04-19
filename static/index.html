@@ -779,10 +779,9 @@ html, body {
             <th>Ticker</th>
             <th>Price</th>
             <th>P&amp;L %</th>
-            <th>RSI</th>
-            <th>Ext 50MA</th>
-            <th>RVOL</th>
-            <th>Signal</th>
+            <th>Action</th>
+            <th>Health</th>
+            <th>Verdict</th>
             <th></th>
           </tr>
         </thead>
@@ -1209,43 +1208,61 @@ function renderAlerts() {
 function renderHoldings() {
   var port = scanData.portfolio || [];
   if (port.length === 0) {
-    $('holdingsBody').innerHTML = '<tr><td colspan="8" style="color:var(--text-muted);text-align:center;padding:16px;">No positions</td></tr>';
+    $('holdingsBody').innerHTML = '<tr><td colspan="7" style="color:var(--text-muted);text-align:center;padding:16px;">No positions</td></tr>';
     return;
   }
-  $('holdingsBody').innerHTML = port.map(function(p) {
+
+  // Sort by priority: SELL first, then WATCH, then HOLD, then ADD. Within same action, lower health first.
+  var actionOrder = { 'SELL': 0, 'WATCH': 1, 'HOLD': 2, 'ADD': 3 };
+  var sorted = port.slice().sort(function(a, b) {
+    var aOrd = actionOrder[a.action] != null ? actionOrder[a.action] : 2;
+    var bOrd = actionOrder[b.action] != null ? actionOrder[b.action] : 2;
+    if (aOrd !== bOrd) return aOrd - bOrd;
+    return (a.health_score || 0) - (b.health_score || 0);
+  });
+
+  $('holdingsBody').innerHTML = sorted.map(function(p) {
     var pnlPct = p.unrealized_pnl_pct;
-    var rsi = p.momentum && p.momentum.rsi_14;
-    var ext50 = p.moving_averages && p.moving_averages.extension_from_50ma_pct;
-    var rvol = p.volume && p.volume.rvol;
+    var action = p.action || 'HOLD';
+    var healthScore = p.health_score != null ? p.health_score : 50;
+    var healthGrade = p.health_grade || '?';
+    var verdict = p.verdict || '';
     var tag = p.tag;
-    var signals = p.active_signals || [];
-    var signalLabel = '\u2014';
-    var signalClass = 'neutral';
-    if (signals.length > 0) {
-      var s = signals[0];
-      var sigLabels = {
-        'volume_climax': 'V.CLIMAX', 'bearish_divergence': 'B.DIV',
-        'below_ma50': 'BROKEN', 'rsi_oversold': 'RSI LOW',
-        'extended_below_ma50': 'EXT LOW'
-      };
-      signalLabel = sigLabels[s.type] || s.type.toUpperCase().slice(0, 8);
-      signalClass = s.severity === 'critical' ? 'negative' : s.severity === 'warning' ? 'amber' : 'neutral';
-    }
-    var tagColor = tag === 'hold' ? 'green' : tag === 'sell' ? 'red' : 'amber';
-    var tagHtml = tag ? '<span class="tag-sm" style="background:var(--' + tagColor + '-dim);color:var(--' + tagColor + ');">' + tag.toUpperCase() + '</span>' : '';
+
+    // Action label styling
+    var actionColors = {
+      'SELL':  { bg: 'var(--red-dim)', fg: 'var(--red)' },
+      'WATCH': { bg: 'var(--amber-dim)', fg: 'var(--amber)' },
+      'HOLD':  { bg: 'var(--green-dim)', fg: 'var(--green)' },
+      'ADD':   { bg: 'rgba(90,180,196,0.15)', fg: 'var(--cyan)' },
+    };
+    var ac = actionColors[action] || actionColors['HOLD'];
+    var actionHtml = '<span style="background:' + ac.bg + ';color:' + ac.fg + ';padding:2px 6px;font-size:10px;font-weight:600;letter-spacing:0.5px;">' + action + '</span>';
+
+    // Health bar
+    var healthColor = healthScore >= 70 ? 'var(--green)' : healthScore >= 40 ? 'var(--amber)' : 'var(--red)';
+    var healthHtml = '<div style="display:flex;align-items:center;gap:6px;">' +
+      '<div style="flex:1;height:4px;background:var(--border);min-width:40px;max-width:60px;">' +
+        '<div style="height:100%;width:' + healthScore + '%;background:' + healthColor + ';"></div>' +
+      '</div>' +
+      '<span style="color:' + healthColor + ';font-size:10px;font-weight:600;">' + healthGrade + '</span>' +
+    '</div>';
+
+    var tagColor = tag === 'hold' ? 'green' : tag === 'sell' ? 'red' : tag === 'div' ? 'amber' : '';
+    var tagHtml = (tag && tag !== 'none') ? ' <span class="tag-sm" style="background:var(--' + tagColor + '-dim);color:var(--' + tagColor + ');">' + tag.toUpperCase() + '</span>' : '';
     var isSelected = selectedTicker === p.ticker;
-    var rsiClass = rsi != null ? (rsi < 30 ? 'negative' : rsi > 70 ? 'amber' : 'neutral') : 'neutral';
-    var extClass = ext50 != null ? (ext50 < -10 ? 'negative' : ext50 > 10 ? 'positive' : 'neutral') : 'neutral';
-    var rvolClass = rvol != null ? (rvol > 2 ? 'negative' : rvol > 1.5 ? 'amber' : 'neutral') : 'neutral';
+
+    // Truncate verdict for table
+    var shortVerdict = verdict.replace(p.ticker + ': ', '');
+    if (shortVerdict.length > 50) shortVerdict = shortVerdict.slice(0, 47) + '...';
 
     return '<tr class="' + (isSelected ? 'selected-row' : '') + '" onclick="selectTicker(\'' + escHtml(p.ticker) + '\')">' +
-      '<td class="ticker-cell">' + escHtml(p.ticker) + ' ' + tagHtml + '</td>' +
+      '<td class="ticker-cell">' + escHtml(p.ticker) + tagHtml + '</td>' +
       '<td>' + fmtDollar(p.current_price) + '</td>' +
       '<td class="' + pnlClass(pnlPct) + '">' + fmtPct(pnlPct) + '</td>' +
-      '<td class="' + rsiClass + '">' + fmt(rsi, 1) + '</td>' +
-      '<td class="' + extClass + '">' + fmtPct(ext50, 1) + '</td>' +
-      '<td class="' + rvolClass + '">' + (rvol != null ? fmt(rvol, 1) + 'x' : '\u2014') + '</td>' +
-      '<td class="' + signalClass + '">' + signalLabel + '</td>' +
+      '<td>' + actionHtml + '</td>' +
+      '<td>' + healthHtml + '</td>' +
+      '<td style="font-size:10px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escHtml(verdict) + '">' + escHtml(shortVerdict) + '</td>' +
       '<td><button class="btn-delete" onclick="event.stopPropagation();deletePosition(\'' + escHtml(p.ticker) + '\')" title="Delete">&times;</button></td>' +
     '</tr>';
   }).join('');

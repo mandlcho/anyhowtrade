@@ -11,7 +11,7 @@ from moomoo import (
 )
 
 from indicators import compute_rsi, compute_macd, compute_bollinger
-from grader import detect_sell_signals, compute_confluence_score, grade_minervini
+from grader import detect_sell_signals, compute_confluence_score, grade_minervini, compute_health
 
 
 # ---------------------------------------------------------------------------
@@ -319,9 +319,15 @@ def analyze_stock(position, log_callback=None, quote_ctx=None):
         confluence_score, confluence_tier = compute_confluence_score(active_signals)
         minervini = grade_minervini(stock_data)
 
+        health = compute_health(stock_data, active_signals)
+
         stock_data["active_signals"] = active_signals
         stock_data["confluence_score"] = confluence_score
         stock_data["confluence_tier"] = confluence_tier
+        stock_data["health_score"] = health["health_score"]
+        stock_data["health_grade"] = health["health_grade"]
+        stock_data["action"] = health["action"]
+        stock_data["verdict"] = health["verdict"]
         stock_data["scanner_grades"] = {
             "minervini": minervini,
         }

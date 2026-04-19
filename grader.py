@@ -134,6 +134,126 @@ def compute_confluence_score(signals):
     return score, tier
 
 
+def compute_health(stock_data, signals):
+    """Compute a health score (0-100) and action label for a position.
+
+    Returns dict with:
+        health_score: 0-100 (100 = perfect health)
+        health_grade: A/B/C/D/F
+        action: "SELL" | "WATCH" | "HOLD" | "ADD"
+        verdict: one-line plain English summary
+    """
+    score = 100
+    reasons_bad = []
+    reasons_good = []
+
+    # --- Penalty: active signals ---
+    for s in signals:
+        if s["severity"] == "critical":
+            score -= 25
+            reasons_bad.append(s["type"].replace("_", " "))
+        elif s["severity"] == "warning":
+            score -= 15
+            reasons_bad.append(s["type"].replace("_", " "))
+        elif s["severity"] == "info":
+            score -= 5
+
+    # --- Penalty: P&L ---
+    pnl_pct = stock_data.get("unrealized_pnl_pct", 0) or 0
+    if pnl_pct < -40:
+        score -= 20
+        reasons_bad.append(f"down {pnl_pct:.0f}%")
+    elif pnl_pct < -20:
+        score -= 10
+        reasons_bad.append(f"down {pnl_pct:.0f}%")
+    elif pnl_pct < -10:
+        score -= 5
+
+    # --- Penalty: trend ---
+    ma = stock_data.get("moving_averages", {})
+    if ma.get("price_above_50ma") is False and ma.get("price_above_200ma") is False:
+        score -= 15
+        reasons_bad.append("below all MAs")
+    elif ma.get("price_above_50ma") is False:
+        score -= 8
+
+    # --- Bonus: strength ---
+    momentum = stock_data.get("momentum", {})
+    rsi = momentum.get("rsi_14", 50) or 50
+
+    if ma.get("price_above_50ma") and ma.get("price_above_200ma"):
+        score += 5
+        reasons_good.append("above all MAs")
+
+    if 40 <= rsi <= 60:
+        score += 3
+        reasons_good.append("RSI neutral")
+    elif rsi < 30:
+        reasons_bad.append(f"RSI oversold ({rsi:.0f})")
+
+    if pnl_pct > 15:
+        score += 5
+        reasons_good.append(f"up {pnl_pct:.0f}%")
+
+    # Clamp
+    score = max(0, min(100, score))
+
+    # Grade
+    if score >= 80:
+        grade = "A"
+    elif score >= 60:
+        grade = "B"
+    elif score >= 40:
+        grade = "C"
+    elif score >= 20:
+        grade = "D"
+    else:
+        grade = "F"
+
+    # Action label
+    ticker = stock_data.get("ticker", "?")
+    tag = stock_data.get("tag", "")
+
+    if score < 30 or (len([s for s in signals if s["severity"] == "critical"]) >= 2):
+        action = "SELL"
+    elif score < 50 or len([s for s in signals if s["severity"] == "critical"]) >= 1:
+        action = "WATCH"
+    elif score >= 80 and rsi < 40 and pnl_pct > -5:
+        action = "ADD"
+    else:
+        action = "HOLD"
+
+    # Override: if user tagged as "sell", reinforce
+    if tag == "sell" and action == "HOLD":
+        action = "WATCH"
+
+    # Verdict — one plain English sentence
+    if action == "SELL":
+        if reasons_bad:
+            verdict = f"{ticker}: {', '.join(reasons_bad[:2]).capitalize()}. Consider cutting this position."
+        else:
+            verdict = f"{ticker}: Multiple warning signs. Consider selling."
+    elif action == "WATCH":
+        if reasons_bad:
+            verdict = f"{ticker}: {', '.join(reasons_bad[:2]).capitalize()}. Monitor closely."
+        else:
+            verdict = f"{ticker}: Some concerns. Keep an eye on it."
+    elif action == "ADD":
+        verdict = f"{ticker}: Healthy and oversold. Could be a buying opportunity."
+    else:
+        if reasons_good:
+            verdict = f"{ticker}: {', '.join(reasons_good[:2]).capitalize()}. No action needed."
+        else:
+            verdict = f"{ticker}: Stable. No action needed."
+
+    return {
+        "health_score": score,
+        "health_grade": grade,
+        "action": action,
+        "verdict": verdict,
+    }
+
+
 def grade_minervini(stock_data):
     price = stock_data["current_price"]
     ma = stock_data.get("moving_averages", {})

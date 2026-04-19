@@ -1,5 +1,5 @@
 import pytest
-from grader import detect_sell_signals, compute_confluence_score, grade_minervini
+from grader import detect_sell_signals, compute_confluence_score, grade_minervini, compute_health
 
 
 def make_stock_data(**overrides):
@@ -146,3 +146,53 @@ class TestMinervini:
         result = grade_minervini(data)
         assert not result["passes"]
         assert result["criteria_met"] < 8
+
+
+class TestComputeHealth:
+    def test_healthy_stock_gets_hold(self):
+        data = make_stock_data()
+        signals = detect_sell_signals(data)
+        health = compute_health(data, signals)
+        assert health["action"] == "HOLD"
+        assert health["health_score"] >= 70
+        assert health["health_grade"] in ("A", "B")
+        assert "No action needed" in health["verdict"]
+
+    def test_critical_signals_get_sell(self):
+        data = make_stock_data(
+            current_price=40.0,
+            avg_cost=100.0,
+            unrealized_pnl_pct=-60.0,
+            momentum={"bearish_divergence": True, "rsi_14": 22.0},
+            volume={"volume_climax": True, "rvol": 3.5},
+            moving_averages={"price_above_50ma": False, "price_above_200ma": False, "extension_from_50ma_pct": -30.0},
+        )
+        signals = detect_sell_signals(data)
+        health = compute_health(data, signals)
+        assert health["action"] == "SELL"
+        assert health["health_score"] < 30
+        assert health["health_grade"] in ("D", "F")
+
+    def test_warning_signals_get_watch(self):
+        data = make_stock_data(
+            momentum={"bearish_divergence": True, "rsi_14": 45.0},
+            moving_averages={"price_above_50ma": True, "price_above_200ma": True},
+        )
+        signals = detect_sell_signals(data)
+        health = compute_health(data, signals)
+        assert health["action"] in ("WATCH", "HOLD")
+
+    def test_verdict_contains_ticker(self):
+        data = make_stock_data()
+        signals = detect_sell_signals(data)
+        health = compute_health(data, signals)
+        assert "TEST" in health["verdict"]
+
+    def test_all_fields_present(self):
+        data = make_stock_data()
+        signals = detect_sell_signals(data)
+        health = compute_health(data, signals)
+        assert "health_score" in health
+        assert "health_grade" in health
+        assert "action" in health
+        assert "verdict" in health
