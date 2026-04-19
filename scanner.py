@@ -1,14 +1,32 @@
-"""Scanner engine — orchestrates data fetching, indicator computation, signal
-detection, grading, and full scan result assembly."""
+"""Scanner engine — orchestrates data fetching via Moomoo OpenD, indicator
+computation, signal detection, grading, and full scan result assembly."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import pandas as pd
-import yfinance as yf
+from moomoo import (
+    OpenQuoteContext, RET_OK, KLType, AuType, KL_FIELD,
+    SubType, Market,
+)
 
 from indicators import compute_rsi, compute_macd, compute_bollinger
 from grader import detect_sell_signals, compute_confluence_score, grade_minervini
+
+
+# ---------------------------------------------------------------------------
+# OpenD connection settings
+# ---------------------------------------------------------------------------
+
+OPEND_HOST = "127.0.0.1"
+OPEND_PORT = 11111
+
+
+def _moomoo_code(ticker):
+    """Convert plain ticker to moomoo format: AAPL -> US.AAPL"""
+    if "." in ticker:
+        return ticker  # already formatted
+    return f"US.{ticker.upper()}"
 
 
 # ---------------------------------------------------------------------------
@@ -32,11 +50,72 @@ def _round(val, n=2):
         return None
 
 
+def _get_quote_ctx():
+    """Create and return a moomoo OpenQuoteContext."""
+    return OpenQuoteContext(host=OPEND_HOST, port=OPEND_PORT)
+
+
+def _fetch_history(quote_ctx, ticker, days=365):
+    """Fetch historical daily K-line data from OpenD.
+
+    Returns a pandas DataFrame with columns: Open, High, Low, Close, Volume
+    indexed by date. Returns empty DataFrame on failure.
+    """
+    code = _moomoo_code(ticker)
+    end_date = datetime.now().strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    ret, data, _ = quote_ctx.request_history_kline(
+        code,
+        start=start_date,
+        end=end_date,
+        ktype=KLType.K_DAY,
+        autype=AuType.QFQ,
+        fields=[KL_FIELD.ALL],
+        max_count=1000,
+    )
+
+    if ret != RET_OK or data is None or data.empty:
+        return pd.DataFrame()
+
+    # Normalize column names to match our indicator functions
+    df = pd.DataFrame({
+        "Open": data["open"].values,
+        "High": data["high"].values,
+        "Low": data["low"].values,
+        "Close": data["close"].values,
+        "Volume": data["volume"].values,
+    }, index=pd.to_datetime(data["time_key"]))
+
+    return df
+
+
+def _fetch_snapshot(quote_ctx, tickers):
+    """Fetch real-time market snapshot for a list of tickers.
+
+    Returns a dict keyed by plain ticker with snapshot data.
+    """
+    codes = [_moomoo_code(t) for t in tickers]
+    ret, data = quote_ctx.get_market_snapshot(codes)
+
+    if ret != RET_OK or data is None or data.empty:
+        return {}
+
+    result = {}
+    for _, row in data.iterrows():
+        # Extract plain ticker from "US.AAPL" format
+        code = row.get("code", "")
+        plain_ticker = code.split(".")[-1] if "." in code else code
+        result[plain_ticker] = row.to_dict()
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Core analysis
 # ---------------------------------------------------------------------------
 
-def analyze_stock(position, log_callback=None):
+def analyze_stock(position, log_callback=None, quote_ctx=None):
     """Fetch 1y of OHLCV for a position and compute all indicators + signals.
 
     Parameters
@@ -45,6 +124,8 @@ def analyze_stock(position, log_callback=None):
         Must contain: ticker, shares, avg_cost. Optional: tag.
     log_callback : callable or None
         Called as log_callback(level, msg) for diagnostic output.
+    quote_ctx : OpenQuoteContext or None
+        Reuse an existing context. If None, creates and closes its own.
 
     Returns
     -------
@@ -54,11 +135,14 @@ def analyze_stock(position, log_callback=None):
     """
     log = _make_logger(log_callback)
     ticker = position["ticker"]
+    own_ctx = quote_ctx is None
 
     try:
-        log("info", f"Fetching {ticker}")
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="1y")
+        if own_ctx:
+            quote_ctx = _get_quote_ctx()
+
+        log("info", f"Fetching {ticker} via OpenD")
+        hist = _fetch_history(quote_ctx, ticker)
 
         if hist.empty or len(hist) < 50:
             log("warn", f"{ticker}: insufficient data ({len(hist)} rows)")
@@ -248,51 +332,72 @@ def analyze_stock(position, log_callback=None):
     except Exception as exc:
         log("error", f"{ticker}: {exc}")
         return {"ticker": ticker, "error": str(exc)}
+    finally:
+        if own_ctx and quote_ctx is not None:
+            quote_ctx.close()
 
 
 # ---------------------------------------------------------------------------
 # Market internals
 # ---------------------------------------------------------------------------
 
-def get_market_internals(log_callback=None):
-    """Fetch price and daily change for major market indices.
+def get_market_internals(log_callback=None, quote_ctx=None):
+    """Fetch price and daily change for major market indices via OpenD snapshot.
 
     Returns
     -------
     dict with keys: sp500, nasdaq, vix, yield_10y
     """
     log = _make_logger(log_callback)
+    own_ctx = quote_ctx is None
 
+    # Moomoo uses ETF proxies for indices since direct index quotes
+    # may not be available. SPY/QQQ are close proxies.
     symbols = {
-        "sp500": "^GSPC",
-        "nasdaq": "^IXIC",
-        "vix": "^VIX",
-        "yield_10y": "^TNX",
+        "sp500": "US.SPY",
+        "nasdaq": "US.QQQ",
+        "vix": "US.UVXY",   # VIX proxy ETF
     }
 
     result = {}
-    for key, sym in symbols.items():
-        try:
-            ticker = yf.Ticker(sym)
-            hist = ticker.history(period="2d")
-            if hist.empty or len(hist) < 1:
-                result[key] = {"price": None, "change_pct": None, "error": "No data"}
-                continue
+    try:
+        if own_ctx:
+            quote_ctx = _get_quote_ctx()
 
-            price = float(hist["Close"].iloc[-1])
-            if len(hist) >= 2:
-                prev = float(hist["Close"].iloc[-2])
-                change_pct = ((price - prev) / prev) * 100 if prev else None
-            else:
-                change_pct = None
+        codes = list(symbols.values())
+        ret, data = quote_ctx.get_market_snapshot(codes)
 
-            result[key] = {
-                "price": _round(price),
-                "change_pct": _round(change_pct),
-            }
-        except Exception as exc:
-            log("error", f"market internals {sym}: {exc}")
+        if ret != RET_OK or data is None or data.empty:
+            log("error", "Failed to fetch market internals snapshot")
+            for key in symbols:
+                result[key] = {"price": None, "change_pct": None, "error": "Snapshot failed"}
+            return result
+
+        for _, row in data.iterrows():
+            code = row.get("code", "")
+            # Find which key this code maps to
+            for key, moo_code in symbols.items():
+                if code == moo_code:
+                    price = _round(row.get("last_price"))
+                    prev_close = row.get("prev_close_price")
+                    change_pct = None
+                    if price and prev_close and prev_close > 0:
+                        change_pct = _round(((price - prev_close) / prev_close) * 100)
+                    result[key] = {"price": price, "change_pct": change_pct}
+                    break
+
+        # Fill any missing keys
+        for key in symbols:
+            if key not in result:
+                result[key] = {"price": None, "change_pct": None}
+
+    except Exception as exc:
+        log("error", f"Market internals error: {exc}")
+        for key in symbols:
             result[key] = {"price": None, "change_pct": None, "error": str(exc)}
+    finally:
+        if own_ctx and quote_ctx is not None:
+            quote_ctx.close()
 
     return result
 
@@ -301,7 +406,7 @@ def get_market_internals(log_callback=None):
 # Watchlist scanner
 # ---------------------------------------------------------------------------
 
-def scan_watchlist(tickers, log_callback=None):
+def scan_watchlist(tickers, log_callback=None, quote_ctx=None):
     """Scan tickers for undervalued / oversold setups.
 
     Criteria (must match >= 2):
@@ -314,50 +419,57 @@ def scan_watchlist(tickers, log_callback=None):
     list of dicts with ticker and matched criteria
     """
     log = _make_logger(log_callback)
+    own_ctx = quote_ctx is None
     hits = []
 
-    for sym in tickers:
-        try:
-            log("info", f"Watchlist scan: {sym}")
-            stock = yf.Ticker(sym)
-            hist = stock.history(period="1y")
+    try:
+        if own_ctx:
+            quote_ctx = _get_quote_ctx()
 
-            if hist.empty or len(hist) < 50:
-                continue
+        for sym in tickers:
+            try:
+                log("debug", f"Watchlist scan: {sym}")
+                hist = _fetch_history(quote_ctx, sym)
 
-            close = hist["Close"]
-            high = hist["High"]
-            current_price = float(close.iloc[-1])
+                if hist.empty or len(hist) < 50:
+                    continue
 
-            high_52w = float(high.max())
-            pct_from_52w_high = ((current_price - high_52w) / high_52w) * 100
+                close = hist["Close"]
+                high = hist["High"]
+                current_price = float(close.iloc[-1])
 
-            rsi_14 = float(compute_rsi(close, 14).iloc[-1])
+                high_52w = float(high.max())
+                pct_from_52w_high = ((current_price - high_52w) / high_52w) * 100
 
-            ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
-            near_below_200ma = (
-                (current_price <= ma200 * 1.02) if ma200 else False
-            )
+                rsi_14 = float(compute_rsi(close, 14).iloc[-1])
 
-            criteria_matched = []
-            if pct_from_52w_high <= -15:
-                criteria_matched.append("price_below_52w_high_15pct")
-            if rsi_14 < 40:
-                criteria_matched.append("rsi_below_40")
-            if near_below_200ma:
-                criteria_matched.append("near_below_200ma")
+                ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
+                near_below_200ma = (
+                    (current_price <= ma200 * 1.02) if ma200 else False
+                )
 
-            if len(criteria_matched) >= 2:
-                hits.append({
-                    "ticker": sym,
-                    "current_price": _round(current_price),
-                    "pct_from_52w_high": _round(pct_from_52w_high),
-                    "rsi_14": _round(rsi_14),
-                    "ma200": _round(ma200),
-                    "criteria_matched": criteria_matched,
-                })
-        except Exception as exc:
-            log("error", f"Watchlist {sym}: {exc}")
+                criteria_matched = []
+                if pct_from_52w_high <= -15:
+                    criteria_matched.append("price_below_52w_high_15pct")
+                if rsi_14 < 40:
+                    criteria_matched.append("rsi_below_40")
+                if near_below_200ma:
+                    criteria_matched.append("near_below_200ma")
+
+                if len(criteria_matched) >= 2:
+                    hits.append({
+                        "ticker": sym,
+                        "current_price": _round(current_price),
+                        "pct_from_52w_high": _round(pct_from_52w_high),
+                        "rsi_14": _round(rsi_14),
+                        "ma200": _round(ma200),
+                        "criteria_matched": criteria_matched,
+                    })
+            except Exception as exc:
+                log("error", f"Watchlist {sym}: {exc}")
+    finally:
+        if own_ctx and quote_ctx is not None:
+            quote_ctx.close()
 
     return hits
 
@@ -372,9 +484,8 @@ def _market_status():
         import zoneinfo
         et = zoneinfo.ZoneInfo("America/New_York")
     except ImportError:
-        # Python < 3.9 fallback: assume UTC offset -4 (EDT)
-        from datetime import timedelta
-        et = timezone(timedelta(hours=-4))
+        from datetime import timedelta as td
+        et = timezone(td(hours=-4))
 
     now_et = datetime.now(et)
     weekday = now_et.weekday()  # 0=Mon, 6=Sun
@@ -430,33 +541,40 @@ def run_scan(positions, watchlist_tickers=None, log_callback=None):
 
     log("info", f"Starting scan {scan_id} — {len(positions)} positions")
 
-    # Analyze each portfolio position
-    portfolio = []
-    alerts = []
-    for pos in positions:
-        result = analyze_stock(pos, log_callback=log_callback)
-        portfolio.append(result)
+    # Open a single quote context for the entire scan
+    quote_ctx = _get_quote_ctx()
 
-        # Collect alerts from active signals
-        if "active_signals" in result:
-            for sig in result["active_signals"]:
-                if sig.get("severity") in ("critical", "warning"):
-                    alerts.append({
-                        "ticker": result["ticker"],
-                        "signal": sig["type"],
-                        "severity": sig["severity"],
-                        "message": sig["message"],
-                    })
+    try:
+        # Analyze each portfolio position
+        portfolio = []
+        alerts = []
+        for pos in positions:
+            result = analyze_stock(pos, log_callback=log_callback, quote_ctx=quote_ctx)
+            portfolio.append(result)
 
-    # Market internals
-    log("info", "Fetching market internals")
-    market_internals = get_market_internals(log_callback=log_callback)
+            # Collect alerts from active signals
+            if "active_signals" in result:
+                for sig in result["active_signals"]:
+                    if sig.get("severity") in ("critical", "warning"):
+                        alerts.append({
+                            "ticker": result["ticker"],
+                            "signal": sig["type"],
+                            "severity": sig["severity"],
+                            "message": sig["message"],
+                        })
 
-    # Watchlist scan
-    watchlist = []
-    if watchlist_tickers:
-        log("info", f"Scanning watchlist: {watchlist_tickers}")
-        watchlist = scan_watchlist(watchlist_tickers, log_callback=log_callback)
+        # Market internals
+        log("info", "Fetching market internals")
+        market_internals = get_market_internals(log_callback=log_callback, quote_ctx=quote_ctx)
+
+        # Watchlist scan
+        watchlist = []
+        if watchlist_tickers:
+            log("info", f"Scanning watchlist: {len(watchlist_tickers)} tickers")
+            watchlist = scan_watchlist(watchlist_tickers, log_callback=log_callback, quote_ctx=quote_ctx)
+
+    finally:
+        quote_ctx.close()
 
     log("info", f"Scan complete — {len(alerts)} alerts, {len(watchlist)} watchlist hits")
 

@@ -326,24 +326,27 @@ async def api_get_latest():
 
 @app.get("/api/history/{ticker}")
 async def api_get_history(ticker: str):
-    import yfinance as yf
+    from scanner import _get_quote_ctx, _fetch_history
 
     loop = asyncio.get_event_loop()
 
     def fetch():
-        stock = yf.Ticker(ticker.upper())
-        hist = stock.history(period="1y")
-        records = []
-        for ts, row in hist.iterrows():
-            records.append({
-                "time": int(ts.timestamp()),
-                "open": round(float(row["Open"]), 4),
-                "high": round(float(row["High"]), 4),
-                "low": round(float(row["Low"]), 4),
-                "close": round(float(row["Close"]), 4),
-                "volume": int(row["Volume"]),
-            })
-        return records
+        quote_ctx = _get_quote_ctx()
+        try:
+            hist = _fetch_history(quote_ctx, ticker.upper())
+            records = []
+            for ts, row in hist.iterrows():
+                records.append({
+                    "time": int(ts.timestamp()),
+                    "open": round(float(row["Open"]), 4),
+                    "high": round(float(row["High"]), 4),
+                    "low": round(float(row["Low"]), 4),
+                    "close": round(float(row["Close"]), 4),
+                    "volume": int(row["Volume"]),
+                })
+            return records
+        finally:
+            quote_ctx.close()
 
     return await loop.run_in_executor(None, fetch)
 

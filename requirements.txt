@@ -1,6 +1,6 @@
 fastapi==0.115.0
 uvicorn==0.30.0
-yfinance==0.2.40
+moomoo-api>=10.3.6308
 pandas==2.2.2
 apscheduler==3.10.4
 aiohttp==3.10.0
