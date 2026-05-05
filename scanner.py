@@ -492,6 +492,79 @@ def scan_watchlist(tickers, log_callback=None, quote_ctx=None):
 
 
 # ---------------------------------------------------------------------------
+# High volume scanner
+# ---------------------------------------------------------------------------
+
+HIGH_VOL_UNIVERSE = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "AMD",
+    "AVGO", "NFLX", "CRM", "ORCL", "ADBE", "INTC", "MU", "QCOM",
+    "UBER", "SNAP", "PLTR", "COIN", "SQ", "SHOP", "ROKU", "PINS",
+    "SOFI", "RIVN", "LCID", "NIO", "MARA", "RIOT", "CIFR", "IREN",
+    "MSTR", "BA", "DIS", "PYPL", "BABA", "JD", "PDD", "ARM",
+    "SMCI", "DELL", "CRWD", "PANW", "SNOW", "DKNG", "HOOD", "RBLX",
+    "NET", "ABNB", "TTD", "ENPH", "FSLR", "CEG", "VST", "SOUN",
+    "IONQ", "RGTI", "QUBT", "BBAI", "LUNR", "RKLB", "AFRM", "UPST",
+    "GME", "AMC", "CVNA", "CAVA", "HIMS", "DUOL", "RDDT", "APP",
+    "CELH", "SMMT", "ONON", "BIRK", "GRAB", "SE", "CPNG", "MELI",
+    "NU", "XP", "ASML", "TSM", "LLY", "UNH", "JPM", "V", "MA",
+    "GS", "BAC", "WFC", "C", "SCHW", "MS", "BLK", "KKR",
+]
+
+MIN_VOLUME = 7_000_000
+
+
+def scan_high_volume(log_callback=None, quote_ctx=None):
+    """Scan a broad universe for stocks with extremely high intraday volume.
+
+    Returns a list of dicts sorted by volume descending, filtered to >= MIN_VOLUME.
+    """
+    log = _make_logger(log_callback)
+    own_ctx = quote_ctx is None
+    hits = []
+
+    try:
+        if own_ctx:
+            quote_ctx = _get_quote_ctx()
+
+        log("info", f"High volume scan: {len(HIGH_VOL_UNIVERSE)} tickers, min {MIN_VOLUME:,}")
+        snapshots = _fetch_snapshot(quote_ctx, HIGH_VOL_UNIVERSE)
+
+        for ticker, snap in snapshots.items():
+            vol = snap.get("volume", 0) or 0
+            if vol < MIN_VOLUME:
+                continue
+
+            price = _round(snap.get("last_price"))
+            prev_close = snap.get("prev_close_price")
+            change_pct = None
+            if price and prev_close and prev_close > 0:
+                change_pct = _round(((price - prev_close) / prev_close) * 100)
+
+            turnover = snap.get("turnover", 0) or 0
+            vol_ratio = _round(snap.get("volume_ratio"))
+
+            hits.append({
+                "ticker": ticker,
+                "price": price,
+                "volume": int(vol),
+                "change_pct": change_pct,
+                "turnover": _round(turnover / 1e6, 1),  # in millions
+                "volume_ratio": vol_ratio,
+            })
+
+        hits.sort(key=lambda x: x["volume"], reverse=True)
+        log("info", f"High volume scan: {len(hits)} stocks above {MIN_VOLUME:,}")
+
+    except Exception as exc:
+        log("error", f"High volume scan error: {exc}")
+    finally:
+        if own_ctx and quote_ctx is not None:
+            quote_ctx.close()
+
+    return hits
+
+
+# ---------------------------------------------------------------------------
 # Market status helper
 # ---------------------------------------------------------------------------
 
@@ -611,10 +684,14 @@ def run_scan(positions, watchlist_tickers=None, log_callback=None):
             log("info", f"Scanning watchlist: {len(watchlist_tickers)} tickers")
             watchlist = scan_watchlist(watchlist_tickers, log_callback=log_callback, quote_ctx=quote_ctx)
 
+        # High volume scan
+        log("info", "Scanning for high volume stocks")
+        high_volume = scan_high_volume(log_callback=log_callback, quote_ctx=quote_ctx)
+
     finally:
         quote_ctx.close()
 
-    log("info", f"Scan complete — {len(alerts)} alerts, {len(watchlist)} watchlist hits")
+    log("info", f"Scan complete — {len(alerts)} alerts, {len(watchlist)} watchlist hits, {len(high_volume)} high vol")
 
     return {
         "scan_id": scan_id,
@@ -623,5 +700,6 @@ def run_scan(positions, watchlist_tickers=None, log_callback=None):
         "portfolio": portfolio,
         "alerts": alerts,
         "watchlist": watchlist,
+        "high_volume": high_volume,
         "market_internals": market_internals,
     }

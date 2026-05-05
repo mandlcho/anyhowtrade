@@ -873,6 +873,14 @@ html, body {
     </div>
   </div>
 
+  <!-- PANEL 6b: High Volume -->
+  <div class="panel" data-panel-id="panel-high-volume">
+    <div class="panel-header">High Volume — &gt;7M Shares <span class="tag" id="highVolCount" style="background:var(--cyan);color:#000;">0</span></div>
+    <div class="panel-body" style="padding:0;" id="panelHighVolume">
+      <div style="color:var(--text-muted);font-size:11px;padding:10px;">No data</div>
+    </div>
+  </div>
+
   <!-- PANEL 7: Position Detail -->
   <div class="panel" data-panel-id="panel-position-detail">
     <div class="panel-header" id="posDetailHeader">Position Detail</div>
@@ -1197,6 +1205,7 @@ function renderAll() {
   renderHoldings();
   renderMarketInternals();
   renderWatchlist();
+  renderHighVolume();
   renderHeatmap();
   renderSellSignals();
   if (selectedTicker) {
@@ -1420,6 +1429,38 @@ function renderWatchlist() {
       '<span class="watchlist-reason">' + escHtml(reason) + '</span>' +
     '</div>';
   }).join('');
+}
+
+// --- Panel 6b: High Volume ---
+function renderHighVolume() {
+  var hv = scanData.high_volume || [];
+  $('highVolCount').textContent = hv.length;
+  if (hv.length === 0) {
+    $('panelHighVolume').innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:10px;">No stocks above 7M volume</div>';
+    return;
+  }
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+    '<thead><tr style="color:var(--text-secondary);border-bottom:1px solid var(--border);">' +
+    '<th style="padding:6px 8px;text-align:left;">TICKER</th>' +
+    '<th style="padding:6px 8px;text-align:right;">PRICE</th>' +
+    '<th style="padding:6px 8px;text-align:right;">VOLUME</th>' +
+    '<th style="padding:6px 8px;text-align:right;">RVOL</th>' +
+    '<th style="padding:6px 8px;text-align:right;">CHG%</th>' +
+    '</tr></thead><tbody>';
+  hv.forEach(function(s) {
+    var chgClass = (s.change_pct || 0) >= 0 ? 'positive' : 'negative';
+    var volStr = (s.volume / 1e6).toFixed(1) + 'M';
+    var rvolStr = s.volume_ratio != null ? s.volume_ratio.toFixed(2) + 'x' : '\u2014';
+    html += '<tr style="border-bottom:1px solid var(--border);">' +
+      '<td style="padding:5px 8px;font-weight:600;color:var(--text-primary);">' + escHtml(s.ticker) + '</td>' +
+      '<td style="padding:5px 8px;text-align:right;color:var(--text-primary);">' + fmtDollar(s.price) + '</td>' +
+      '<td style="padding:5px 8px;text-align:right;color:var(--cyan);font-weight:600;">' + volStr + '</td>' +
+      '<td style="padding:5px 8px;text-align:right;color:var(--text-secondary);">' + rvolStr + '</td>' +
+      '<td style="padding:5px 8px;text-align:right;" class="' + chgClass + '">' + fmtPct(s.change_pct) + '</td>' +
+      '</tr>';
+  });
+  html += '</tbody></table>';
+  $('panelHighVolume').innerHTML = html;
 }
 
 // --- Panel 7: Position Detail ---
