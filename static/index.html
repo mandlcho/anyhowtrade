@@ -1464,6 +1464,22 @@ function renderHighVolume() {
 }
 
 // --- Panel 7: Position Detail ---
+function volTrendClass(vol) {
+  if (!vol || !vol.vol_trend) return 'neutral';
+  if (vol.vol_trend === 'fading') return 'amber';
+  if (vol.vol_trend === 'building') return 'positive';
+  if (vol.vol_trend === 'distribution') return 'negative';
+  return 'neutral';
+}
+function volTrendLabel(vol) {
+  if (!vol || !vol.vol_trend) return '\u2014';
+  var labels = { fading: '\u26A0 FADING', building: '\u2191 BUILDING', distribution: '\u25BC DIST', neutral: 'NEUTRAL' };
+  var extra = '';
+  if (vol.vol_trend === 'fading' && vol.rvol_3d != null) extra = ' (' + vol.rvol_3d.toFixed(2) + 'x)';
+  if (vol.vol_trend === 'building' && vol.rvol_3d != null) extra = ' (' + vol.rvol_3d.toFixed(2) + 'x)';
+  return (labels[vol.vol_trend] || vol.vol_trend) + extra;
+}
+
 function renderPositionDetail() {
   if (!selectedTicker || !scanData) return;
   var p = (scanData.portfolio || []).find(function(x) { return x.ticker === selectedTicker; });
@@ -1495,6 +1511,7 @@ function renderPositionDetail() {
       '<div class="scanner-cell"><div class="scanner-cell-label">MACD</div><div class="scanner-cell-value ' + pnlClass(macd) + '">' + fmt(macd) + '</div></div>' +
       '<div class="scanner-cell"><div class="scanner-cell-label">BB Position</div><div class="scanner-cell-value neutral">' + (bbPos != null ? fmt(bbPos, 1) + '%' : '\u2014') + '</div></div>' +
       '<div class="scanner-cell"><div class="scanner-cell-label">RVOL</div><div class="scanner-cell-value neutral">' + (rvol != null ? fmt(rvol, 1) + 'x' : '\u2014') + '</div></div>' +
+      '<div class="scanner-cell"><div class="scanner-cell-label">VOL TREND</div><div class="scanner-cell-value ' + volTrendClass(p.volume) + '">' + volTrendLabel(p.volume) + '</div></div>' +
     '</div>' +
     '<div style="margin-top:8px;">' +
       '<div class="scanner-cell-label">SIGNALS</div>' +

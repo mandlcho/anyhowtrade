@@ -218,6 +218,29 @@ def analyze_stock(position, log_callback=None, quote_ctx=None):
         vol_max_10d = volume.tail(10).max()
         volume_climax = bool(vol_today >= vol_max_10d * 0.95 and rvol >= 2.0)
 
+        # Volume trend: detect rally on fading volume (covered call signal)
+        # Compare 3-day avg RVOL vs 10-day avg RVOL while price is rising
+        rvol_3d = volume.tail(3).mean() / vol_50avg if vol_50avg > 0 else 0
+        rvol_10d = volume.tail(10).mean() / vol_50avg if vol_50avg > 0 else 0
+        price_5d_chg = ((current_price - close.iloc[-6]) / close.iloc[-6]) * 100 if len(close) > 6 else 0
+        # Check if up-days in last 5 have declining volume
+        last5 = hist.tail(6).copy()
+        last5["up"] = last5["Close"] > last5["Close"].shift(1)
+        up_days = last5[last5["up"] == True]
+        up_day_vols = up_days["Volume"].values
+        vol_declining_on_up = bool(
+            len(up_day_vols) >= 2 and
+            all(up_day_vols[i] >= up_day_vols[i+1] for i in range(len(up_day_vols)-1))
+        )
+        if price_5d_chg > 3 and rvol_3d < 0.7 and rvol_10d > rvol_3d:
+            vol_trend = "fading"
+        elif price_5d_chg > 3 and rvol_3d > 1.2:
+            vol_trend = "building"
+        elif price_5d_chg < -3 and rvol_3d > 1.2:
+            vol_trend = "distribution"
+        else:
+            vol_trend = "neutral"
+
         # ------------------------------------------------------------------ #
         # 52-week range
         # ------------------------------------------------------------------ #
@@ -302,8 +325,12 @@ def analyze_stock(position, log_callback=None, quote_ctx=None):
                 "today_volume": int(vol_today),
                 "avg_50d_volume": int(vol_50avg),
                 "rvol": _round(rvol),
+                "rvol_3d": _round(rvol_3d),
                 "vol_5d_vs_50d": _round(vol_5d_vs_50d),
                 "volume_climax": volume_climax,
+                "vol_trend": vol_trend,
+                "vol_declining_on_up": vol_declining_on_up,
+                "price_5d_chg": _round(price_5d_chg),
             },
             "range_52w": {
                 "high_52w": _round(high_52w),

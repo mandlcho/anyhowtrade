@@ -16,6 +16,7 @@ from signals import check_sell_signals
 
 THRESHOLD = 6
 WATCHLIST_GROUP = "claude.sell"
+WATCH_GROUP = "claude.watch"
 
 
 def main():
@@ -33,6 +34,7 @@ def main():
 
     ctx = OpenQuoteContext(host=OPEND_HOST, port=OPEND_PORT)
     triggered = []
+    fading_vol = []
     results = []
 
     for pos in positions:
@@ -52,6 +54,16 @@ def main():
         fired_count = sum(1 for _, fired, _ in sigs if fired)
         fired_signals = [(name, detail) for name, fired, detail in sigs if fired]
 
+        # Volume trend detection
+        vol_50avg = hist["Volume"].rolling(50).mean().iloc[-1]
+        rvol_3d = hist["Volume"].tail(3).mean() / vol_50avg if vol_50avg > 0 else 0
+        rvol_10d = hist["Volume"].tail(10).mean() / vol_50avg if vol_50avg > 0 else 0
+        price_5d_chg = ((current - hist["Close"].iloc[-6]) / hist["Close"].iloc[-6]) * 100 if len(hist) > 6 else 0
+        is_fading = price_5d_chg > 3 and rvol_3d < 0.7 and rvol_10d > rvol_3d
+
+        if is_fading:
+            fading_vol.append(ticker)
+
         results.append({
             "ticker": ticker,
             "current": current,
@@ -61,6 +73,9 @@ def main():
             "fired_count": fired_count,
             "fired_signals": fired_signals,
             "triggered": fired_count >= THRESHOLD,
+            "vol_fading": is_fading,
+            "rvol_3d": rvol_3d,
+            "price_5d_chg": price_5d_chg,
         })
 
     # Output results
@@ -82,7 +97,18 @@ def main():
                 print(f"    * {name}: {detail}")
             print()
         else:
-            print(f"  {ticker}: {count}/10 — OK")
+            fading_tag = " ⚠ VOL FADING" if r.get("vol_fading") else ""
+            print(f"  {ticker}: {count}/10 — OK{fading_tag}" + (f" (+{r['price_5d_chg']:.0f}% on {r['rvol_3d']:.2f}x vol)" if r.get("vol_fading") else ""))
+
+    # Auto-add fading volume stocks to claude.watch
+    if fading_vol:
+        print()
+        codes = [_moomoo_code(t) for t in fading_vol]
+        ret, data = ctx.modify_user_security(WATCH_GROUP, ModifyUserSecurityOp.ADD, codes)
+        if ret == RET_OK:
+            print(f"  ⚠ Added to '{WATCH_GROUP}' (fading volume): {', '.join(fading_vol)}")
+        else:
+            print(f"  Warning: Could not add to '{WATCH_GROUP}': {data}")
 
     # Add triggered stocks to claude.sell watchlist
     if triggered_tickers:
