@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Buy signal checker — scans watchlist for recovery/accumulation signals.
+"""Buy signal checker — scans current positions for accumulation signals.
 
-Scans Mag 7 stocks via OpenD, runs 10 buy signals on each.
+Loads positions from latest_scan.json (or accepts ticker args).
 Stocks with 6+ signals are added to the 'claude.buy' moomoo watchlist.
 """
 
+import json
 import sys
 
 from moomoo import OpenQuoteContext, ModifyUserSecurityOp, RET_OK
@@ -15,14 +16,28 @@ from signals import check_buy_signals
 THRESHOLD = 6
 WATCHLIST_GROUP = "claude.buy"
 
-MAG7 = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"]
-
 
 def main():
+    args = sys.argv[1:]
+    if args:
+        tickers = [t.upper().strip(",") for t in args]
+    else:
+        try:
+            with open("latest_scan.json") as f:
+                positions = json.load(f)
+            tickers = [p["ticker"] for p in positions if "ticker" in p]
+        except FileNotFoundError:
+            print("ERROR: latest_scan.json not found. Run a scan first.")
+            sys.exit(1)
+
+    if not tickers:
+        print("No tickers found.")
+        sys.exit(0)
+
     ctx = OpenQuoteContext(host=OPEND_HOST, port=OPEND_PORT)
     results = []
 
-    for ticker in MAG7:
+    for ticker in tickers:
         hist = _fetch_history(ctx, ticker)
         if hist.empty or len(hist) < 50:
             results.append({"ticker": ticker, "error": "Insufficient data"})

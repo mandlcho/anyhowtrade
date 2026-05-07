@@ -1,4 +1,4 @@
-Run the buy signal checker against the Mag 7 watchlist (AAPL, MSFT, GOOGL, AMZN, META, NVDA, TSLA). Execute this command from the project root:
+Run the buy signal checker against current holdings from latest_scan.json, or specific tickers if provided. Execute this command from the project root:
 
 ```
 /Users/mandl/Desktop/projects/openscan/venv/bin/python3 /Users/mandl/Desktop/projects/openscan/buycheck.py
