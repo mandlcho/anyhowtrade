@@ -48,7 +48,7 @@ def _fetch_daily(ctx, ticker):
 def _fetch_4h(ctx, ticker):
     code = _moomoo_code(ticker)
     end_date   = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=220)).strftime("%Y-%m-%d")
 
     ret, data, _ = ctx.request_history_kline(
         code,
@@ -57,7 +57,7 @@ def _fetch_4h(ctx, ticker):
         ktype=KLType.K_60M,
         autype=AuType.QFQ,
         fields=[KL_FIELD.ALL],
-        max_count=1200,
+        max_count=1500,
     )
     if ret != RET_OK or data is None or data.empty:
         return pd.DataFrame()
