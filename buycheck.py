@@ -68,9 +68,9 @@ def main():
                 print(f"    * {name}: {detail}")
             print()
         else:
-            fired_names = [name for name, _ in r["fired_signals"]]
-            summary = f" [{', '.join(fired_names)}]" if fired_names else ""
-            print(f"  {ticker}: {count}/10 — ${r['current']:.2f} ({r['pct_from_high']:+.1f}% from 52w high){summary}")
+            print(f"  {ticker}: {count}/10 — ${r['current']:.2f} ({r['pct_from_high']:+.1f}% from 52w high)")
+            for name, detail in r["fired_signals"]:
+                print(f"    * {name}: {detail}")
 
     # Add triggered stocks to claude.buy watchlist
     if triggered_tickers:

@@ -98,7 +98,10 @@ def main():
             print()
         else:
             fading_tag = " ⚠ VOL FADING" if r.get("vol_fading") else ""
-            print(f"  {ticker}: {count}/10 — OK{fading_tag}" + (f" (+{r['price_5d_chg']:.0f}% on {r['rvol_3d']:.2f}x vol)" if r.get("vol_fading") else ""))
+            vol_detail = f" (+{r['price_5d_chg']:.0f}% on {r['rvol_3d']:.2f}x vol)" if r.get("vol_fading") else ""
+            print(f"  {ticker}: {count}/10 — ${r['current']:.2f} ({r['pnl_pct']:+.1f}%){fading_tag}{vol_detail}")
+            for name, detail in r["fired_signals"]:
+                print(f"    * {name}: {detail}")
 
     # Auto-add fading volume stocks to claude.watch
     if fading_vol:
